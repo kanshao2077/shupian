@@ -10,6 +10,8 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  CaretDown,
+  CaretUp,
   CheckCircle,
   ClipboardText,
   Package,
@@ -36,6 +38,11 @@ const EXTENSION_MESSAGE_SOURCE = "PIANKE_BROWSER_ASSISTANT";
 const APP_ASSET_BASE = import.meta.env.BASE_URL;
 const DEFAULT_AVATAR = `${APP_ASSET_BASE}assets/avatar-kan-shao.png`;
 const APP_LOGO = `${APP_ASSET_BASE}assets/shupian-logo.png`;
+const IMAGE_ASPECT_RATIOS = {
+  "16:9": 16 / 9,
+  "4:3": 4 / 3,
+  "1:1": 1,
+};
 
 const DEFAULT_TEXT = `从 Codex 额度重置这件事里，
 
@@ -130,12 +137,39 @@ function wrapText(value, fontSize) {
   return lines;
 }
 
-function getMediaHeight(media) {
-  const naturalHeight = (CONTENT_WIDTH * media.height) / media.width;
-  return Math.min(470, Math.max(150, naturalHeight));
+function getContentParagraphs(value) {
+  return value
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph && !/^---+$/.test(paragraph));
 }
 
-function paginateContent(text, media, fontSize, lineHeight) {
+function createBlockId(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function createTextBlock(text = "", id = createBlockId("text")) {
+  return { id, type: "text", text };
+}
+
+function createInitialContentBlocks(value) {
+  const paragraphs = getContentParagraphs(value);
+  return paragraphs.length
+    ? paragraphs.map((paragraph) => createTextBlock(paragraph))
+    : [createTextBlock()];
+}
+
+function getMediaHeight(media) {
+  const selectedRatio = IMAGE_ASPECT_RATIOS[media.aspectRatio];
+  if (selectedRatio) {
+    return Math.round(CONTENT_WIDTH / selectedRatio);
+  }
+
+  const naturalHeight = (CONTENT_WIDTH * media.height) / media.width;
+  return Math.min(760, Math.max(150, naturalHeight));
+}
+
+function paginateContent(contentBlocks, fontSize, lineHeight) {
   const pages = [];
   const lineHeightPx = fontSize * lineHeight;
   const paragraphGap = Math.max(28, fontSize * 0.86);
@@ -166,21 +200,30 @@ function paginateContent(text, media, fontSize, lineHeight) {
       (currentPage.elements.length > 1 ? mediaGap : 0) + height;
   };
 
-  media.forEach(addMedia);
-
-  const manualPages = text.split(/\n\s*---+\s*\n/g);
-
-  manualPages.forEach((manualPage, manualPageIndex) => {
-    if (manualPageIndex > 0 && currentPage.elements.length) {
+  contentBlocks.forEach((block) => {
+    if (block.type === "pageBreak") {
       commitPage();
+      return;
     }
 
-    const paragraphs = manualPage
-      .split(/\n+/)
+    if (block.type === "media") {
+      addMedia(block.asset);
+      return;
+    }
+
+    if (block.type !== "text") return;
+
+    const paragraphs = block.text
+      .split(/\n/)
       .map((paragraph) => paragraph.trim())
       .filter(Boolean);
 
     paragraphs.forEach((paragraph) => {
+      if (/^---+$/.test(paragraph)) {
+        commitPage();
+        return;
+      }
+
       let remainingLines = wrapText(paragraph, fontSize);
 
       while (remainingLines.length) {
@@ -256,6 +299,7 @@ function readImageFile(file) {
           ),
           width,
           height,
+          aspectRatio: "16:9",
         });
       } catch (error) {
         reject(
@@ -404,8 +448,14 @@ const CardCanvas = forwardRef(function CardCanvas(
                   src={element.asset.src}
                   alt={element.asset.name}
                   style={
-                    element.asset.width / element.asset.height >=
-                    CONTENT_WIDTH / element.height
+                    IMAGE_ASPECT_RATIOS[element.asset.aspectRatio]
+                      ? {
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }
+                      : element.asset.width / element.asset.height >=
+                          CONTENT_WIDTH / element.height
                       ? { width: "100%", height: "auto" }
                       : { width: "auto", height: "100%" }
                   }
@@ -506,12 +556,13 @@ function CardThumbnail({
 
 export function App() {
   const [activePanel, setActivePanel] = useState("content");
-  const [text, setText] = useState(DEFAULT_TEXT);
+  const [contentBlocks, setContentBlocks] = useState(() =>
+    createInitialContentBlocks(DEFAULT_TEXT),
+  );
   const [postTitle, setPostTitle] = useState("从额度重置，看见新的工作节奏");
   const [author, setAuthor] = useState("侃少2077");
   const [date, setDate] = useState("2026-07-27");
   const [avatar, setAvatar] = useState(DEFAULT_AVATAR);
-  const [media, setMedia] = useState([]);
   const [background, setBackground] = useState("#121214");
   const [cardRadius, setCardRadius] = useState(64);
   const [imageRadius, setImageRadius] = useState(28);
@@ -525,16 +576,37 @@ export function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [extensionReady, setExtensionReady] = useState(false);
   const [pendingImageReads, setPendingImageReads] = useState(0);
+  const [activeTextBlockId, setActiveTextBlockId] = useState(null);
 
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
-  const textareaRef = useRef(null);
+  const textBlockRefs = useRef(new Map());
+  const activeTextSelectionRef = useRef(null);
+  const pendingFilePlacementRef = useRef(null);
   const exportRefs = useRef([]);
   const noticeTimeoutRef = useRef(null);
 
+  const text = useMemo(
+    () =>
+      contentBlocks
+        .flatMap((block) => {
+          if (block.type === "text") return [block.text];
+          if (block.type === "pageBreak") return ["---"];
+          return [];
+        })
+        .join("\n\n"),
+    [contentBlocks],
+  );
+  const media = useMemo(
+    () =>
+      contentBlocks
+        .filter((block) => block.type === "media")
+        .map((block) => block.asset),
+    [contentBlocks],
+  );
   const pages = useMemo(
-    () => paginateContent(text, media, fontSize, lineHeight),
-    [text, media, fontSize, lineHeight],
+    () => paginateContent(contentBlocks, fontSize, lineHeight),
+    [contentBlocks, fontSize, lineHeight],
   );
   const safeSelectedPage = Math.min(selectedPage, pages.length - 1);
 
@@ -628,8 +700,181 @@ export function App() {
     watermark,
   };
 
+  const focusTextBlock = useCallback((blockId, cursorPosition = 0) => {
+    window.requestAnimationFrame(() => {
+      const textarea = textBlockRefs.current.get(blockId);
+      if (!textarea) return;
+      textarea.focus();
+      const safeCursor = Math.min(cursorPosition, textarea.value.length);
+      textarea.setSelectionRange(safeCursor, safeCursor);
+      activeTextSelectionRef.current = {
+        blockId,
+        start: safeCursor,
+        end: safeCursor,
+      };
+    });
+  }, []);
+
+  const rememberTextSelection = useCallback((event, blockId) => {
+    setActiveTextBlockId(blockId);
+    activeTextSelectionRef.current = {
+      blockId,
+      start: event.currentTarget.selectionStart,
+      end: event.currentTarget.selectionEnd,
+    };
+  }, []);
+
+  const updateTextBlock = useCallback((blockId, value, selectionStart) => {
+    setContentBlocks((current) =>
+      current.map((block) =>
+        block.id === blockId && block.type === "text"
+          ? { ...block, text: value }
+          : block,
+      ),
+    );
+    activeTextSelectionRef.current = {
+      blockId,
+      start: selectionStart,
+      end: selectionStart,
+    };
+  }, []);
+
+  const splitTextBlock = useCallback(
+    (event, blockId) => {
+      if (
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.nativeEvent.isComposing
+      ) {
+        if (
+          event.key === "Backspace" &&
+          event.currentTarget.selectionStart === 0 &&
+          event.currentTarget.selectionEnd === 0
+        ) {
+          const currentValue = event.currentTarget.value;
+          let previousTextId = null;
+          let previousLength = 0;
+
+          setContentBlocks((current) => {
+            const currentIndex = current.findIndex(
+              (block) => block.id === blockId,
+            );
+            const previousBlock = current[currentIndex - 1];
+            if (currentIndex <= 0 || previousBlock?.type !== "text") {
+              return current;
+            }
+
+            event.preventDefault();
+            previousTextId = previousBlock.id;
+            previousLength = previousBlock.text.length;
+            return current
+              .map((block) =>
+                block.id === previousBlock.id
+                  ? { ...block, text: block.text + currentValue }
+                  : block,
+              )
+              .filter((block) => block.id !== blockId);
+          });
+
+          window.requestAnimationFrame(() => {
+            if (previousTextId) {
+              focusTextBlock(previousTextId, previousLength);
+            }
+          });
+        }
+        return;
+      }
+
+      event.preventDefault();
+      const start = event.currentTarget.selectionStart;
+      const end = event.currentTarget.selectionEnd;
+      const value = event.currentTarget.value;
+      const nextBlock = createTextBlock(value.slice(end));
+
+      setContentBlocks((current) => {
+        const index = current.findIndex((block) => block.id === blockId);
+        if (index < 0) return current;
+        const next = [...current];
+        next.splice(
+          index,
+          1,
+          { ...current[index], text: value.slice(0, start) },
+          nextBlock,
+        );
+        return next;
+      });
+      setActiveTextBlockId(nextBlock.id);
+      focusTextBlock(nextBlock.id);
+    },
+    [focusTextBlock],
+  );
+
+  const pastePlainTextBlocks = useCallback(
+    (event, blockId) => {
+      const imageFiles = Array.from(event.clipboardData?.items || [])
+        .filter(
+          (item) =>
+            item.kind === "file" && item.type.startsWith("image/"),
+        )
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+
+      if (imageFiles.length) {
+        event.preventDefault();
+        const placement = {
+          blockId,
+          start: event.currentTarget.selectionStart,
+          end: event.currentTarget.selectionEnd,
+        };
+        pendingFilePlacementRef.current = placement;
+        return placement;
+      }
+
+      const pastedText = event.clipboardData?.getData("text/plain") || "";
+      if (!/\r?\n/.test(pastedText)) return null;
+
+      event.preventDefault();
+      const start = event.currentTarget.selectionStart;
+      const end = event.currentTarget.selectionEnd;
+      const value = event.currentTarget.value;
+      const pastedParagraphs = pastedText.split(/\r?\n+/);
+      const firstText = value.slice(0, start) + pastedParagraphs[0];
+      const trailingText =
+        pastedParagraphs[pastedParagraphs.length - 1] + value.slice(end);
+      const insertedBlocks = [
+        { id: blockId, type: "text", text: firstText },
+        ...pastedParagraphs
+          .slice(1, -1)
+          .map((paragraph) => createTextBlock(paragraph)),
+      ];
+      const trailingBlock =
+        pastedParagraphs.length > 1
+          ? createTextBlock(trailingText)
+          : insertedBlocks[0];
+
+      if (pastedParagraphs.length > 1) {
+        insertedBlocks.push(trailingBlock);
+      }
+
+      setContentBlocks((current) => {
+        const index = current.findIndex((block) => block.id === blockId);
+        if (index < 0) return current;
+        const next = [...current];
+        next.splice(index, 1, ...insertedBlocks);
+        return next;
+      });
+      setActiveTextBlockId(trailingBlock.id);
+      focusTextBlock(
+        trailingBlock.id,
+        pastedParagraphs[pastedParagraphs.length - 1].length,
+      );
+      return [];
+    },
+    [focusTextBlock],
+  );
+
   const addFiles = useCallback(
-    async (fileList) => {
+    async (fileList, placement = activeTextSelectionRef.current) => {
       if (pendingImageReads) {
         showNotice("上一批图片还在读取");
         return;
@@ -644,6 +889,48 @@ export function App() {
         return;
       }
 
+      const pendingBlock = {
+        id: createBlockId("pending"),
+        type: "pendingMedia",
+        count: files.length,
+      };
+      const trailingBlock = createTextBlock();
+
+      setContentBlocks((current) => {
+        const targetIndex = placement?.blockId
+          ? current.findIndex((block) => block.id === placement.blockId)
+          : -1;
+        const targetBlock = current[targetIndex];
+
+        if (
+          targetIndex >= 0 &&
+          targetBlock?.type === "text" &&
+          Number.isInteger(placement.start)
+        ) {
+          const start = Math.min(placement.start, targetBlock.text.length);
+          const end = Math.min(
+            Math.max(placement.end ?? start, start),
+            targetBlock.text.length,
+          );
+          const next = [...current];
+          next.splice(
+            targetIndex,
+            1,
+            { ...targetBlock, text: targetBlock.text.slice(0, start) },
+            pendingBlock,
+            { ...trailingBlock, text: targetBlock.text.slice(end) },
+          );
+          return next;
+        }
+
+        const insertionIndex =
+          targetIndex >= 0 ? targetIndex + 1 : current.length;
+        const next = [...current];
+        next.splice(insertionIndex, 0, pendingBlock, trailingBlock);
+        return next;
+      });
+      setActiveTextBlockId(trailingBlock.id);
+      focusTextBlock(trailingBlock.id);
       setPendingImageReads((current) => current + 1);
       try {
         const assets = [];
@@ -661,19 +948,149 @@ export function App() {
           throw failures[0] || new Error("图片读取失败");
         }
 
-        setMedia((current) => [...current, ...assets].slice(0, MAX_UPLOADS));
+        setContentBlocks((current) =>
+          current.flatMap((block) =>
+            block.id === pendingBlock.id
+              ? assets.map((asset) => ({
+                  id: asset.id,
+                  type: "media",
+                  asset,
+                }))
+              : [block],
+          ),
+        );
         showNotice(
           failures.length
             ? `已加入 ${assets.length} 张，${failures.length} 张读取失败`
-            : `已加入 ${assets.length} 张图片`,
+            : `已在光标位置插入 ${assets.length} 张图片`,
         );
       } catch (error) {
+        setContentBlocks((current) =>
+          current.filter((block) => block.id !== pendingBlock.id),
+        );
         showNotice(error.message);
       } finally {
         setPendingImageReads((current) => Math.max(0, current - 1));
       }
     },
-    [media.length, pendingImageReads, showNotice],
+    [focusTextBlock, media.length, pendingImageReads, showNotice],
+  );
+
+  const moveContentBlock = useCallback((blockId, direction) => {
+    setContentBlocks((current) => {
+      const sourceIndex = current.findIndex((block) => block.id === blockId);
+      const targetIndex = sourceIndex + direction;
+
+      if (
+        sourceIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= current.length
+      ) {
+        return current;
+      }
+
+      const next = [...current];
+      [next[sourceIndex], next[targetIndex]] = [
+        next[targetIndex],
+        next[sourceIndex],
+      ];
+      return next;
+    });
+  }, []);
+
+  const setMediaAspectRatio = useCallback((assetId, aspectRatio) => {
+    setContentBlocks((current) =>
+      current.map((block) =>
+        block.type === "media" && block.asset.id === assetId
+          ? { ...block, asset: { ...block.asset, aspectRatio } }
+          : block,
+      ),
+    );
+  }, []);
+
+  const removeContentBlock = useCallback((blockId) => {
+    setContentBlocks((current) => {
+      const next = current.filter((block) => block.id !== blockId);
+      return next.some((block) => block.type === "text")
+        ? next
+        : [...next, createTextBlock()];
+    });
+  }, []);
+
+  const insertPageBreak = useCallback(() => {
+    const placement = activeTextSelectionRef.current;
+    const pageBreak = { id: createBlockId("break"), type: "pageBreak" };
+    const trailingBlock = createTextBlock();
+
+    setContentBlocks((current) => {
+      const targetIndex = placement?.blockId
+        ? current.findIndex((block) => block.id === placement.blockId)
+        : -1;
+      const targetBlock = current[targetIndex];
+
+      if (
+        targetIndex >= 0 &&
+        targetBlock?.type === "text" &&
+        Number.isInteger(placement.start)
+      ) {
+        const start = Math.min(placement.start, targetBlock.text.length);
+        const end = Math.min(
+          Math.max(placement.end ?? start, start),
+          targetBlock.text.length,
+        );
+        const next = [...current];
+        next.splice(
+          targetIndex,
+          1,
+          { ...targetBlock, text: targetBlock.text.slice(0, start) },
+          pageBreak,
+          { ...trailingBlock, text: targetBlock.text.slice(end) },
+        );
+        return next;
+      }
+
+      return [...current, pageBreak, trailingBlock];
+    });
+    setActiveTextBlockId(trailingBlock.id);
+    focusTextBlock(trailingBlock.id);
+    showNotice("已从光标位置开始新卡片");
+  }, [focusTextBlock, showNotice]);
+
+  const handleContentPaste = useCallback(
+    (event, blockId) => {
+      const placement = pastePlainTextBlocks(event, blockId);
+      if (Array.isArray(placement)) return;
+
+      if (placement) {
+        const imageFiles = Array.from(event.clipboardData?.items || [])
+          .filter(
+            (item) =>
+              item.kind === "file" && item.type.startsWith("image/"),
+          )
+          .map((item) => item.getAsFile())
+          .filter(Boolean);
+        addFiles(imageFiles, placement);
+      }
+    },
+    [addFiles, pastePlainTextBlocks],
+  );
+
+  const openImagePicker = useCallback(() => {
+    pendingFilePlacementRef.current = activeTextSelectionRef.current;
+    fileInputRef.current?.click();
+  }, []);
+
+  const getImageEditorAspectRatio = useCallback((asset) => {
+    if (IMAGE_ASPECT_RATIOS[asset.aspectRatio]) {
+      return asset.aspectRatio.replace(":", " / ");
+    }
+    return `${asset.width} / ${asset.height}`;
+  }, []);
+
+  const getImageEditorFit = useCallback(
+    (asset) =>
+      IMAGE_ASPECT_RATIOS[asset.aspectRatio] ? "cover" : "contain",
+    [],
   );
 
   const onAvatarChange = useCallback(
@@ -703,23 +1120,6 @@ export function App() {
     },
     [pendingImageReads, showNotice],
   );
-
-  const insertPageBreak = useCallback(() => {
-    const textarea = textareaRef.current;
-    const start = textarea?.selectionStart ?? text.length;
-    const end = textarea?.selectionEnd ?? text.length;
-    const nextText = `${text.slice(0, start).replace(/\s*$/, "")}\n---\n${text
-      .slice(end)
-      .replace(/^\s*/, "")}`;
-
-    setText(nextText);
-    window.requestAnimationFrame(() => {
-      textarea?.focus();
-      const cursorPosition = start + 5;
-      textarea?.setSelectionRange(cursorPosition, cursorPosition);
-    });
-    showNotice("已插入手动分页");
-  }, [showNotice, text]);
 
   const renderCardBlob = useCallback(async (index) => {
     const node = exportRefs.current[index];
@@ -1090,54 +1490,216 @@ export function App() {
 
               <section className="control-section text-section">
                 <div className="section-heading">
-                  <h2>正文内容</h2>
+                  <h2>图文内容</h2>
                   <span className="page-count">{pages.length} 张</span>
                 </div>
 
-                <textarea
-                  ref={textareaRef}
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                  placeholder="粘贴长文，系统会自动分页…"
-                  spellCheck="false"
-                />
-
-                <div className="inline-actions">
-                  <span>{text.replace(/\s/g, "").length} 字 · 自动分页</span>
-                  <button type="button" onClick={insertPageBreak}>
-                    + 手动分页
-                  </button>
-                </div>
-              </section>
-
-              <section className="control-section">
-                <div className="section-heading">
-                  <h2>内容图片</h2>
-                </div>
-
-                <button
-                  className={`drop-zone ${isDragging ? "is-dragging" : ""}`}
-                  type="button"
-                  disabled={pendingImageReads > 0 || Boolean(exportState)}
-                  onClick={() => fileInputRef.current?.click()}
+                <div
+                  className={`mixed-content-editor ${
+                    isDragging ? "is-dragging" : ""
+                  }`}
                   onDragEnter={(event) => {
                     event.preventDefault();
                     setIsDragging(true);
                   }}
                   onDragOver={(event) => event.preventDefault()}
-                  onDragLeave={() => setIsDragging(false)}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      setIsDragging(false);
+                    }
+                  }}
                   onDrop={(event) => {
                     event.preventDefault();
                     setIsDragging(false);
-                    addFiles(event.dataTransfer.files);
+                    addFiles(
+                      event.dataTransfer.files,
+                      activeTextSelectionRef.current,
+                    );
                   }}
                 >
-                  <UploadSimple weight="bold" />
-                  <span>
-                    <strong>添加任意比例图片</strong>
-                    自动完整显示，不裁切
-                  </span>
-                </button>
+                  {contentBlocks.map((block, blockIndex) => {
+                    if (block.type === "text") {
+                      return (
+                        <textarea
+                          key={block.id}
+                          ref={(node) => {
+                            if (node) {
+                              textBlockRefs.current.set(block.id, node);
+                            } else {
+                              textBlockRefs.current.delete(block.id);
+                            }
+                          }}
+                          className={`content-text-block ${
+                            activeTextBlockId === block.id ? "is-active" : ""
+                          }`}
+                          data-block-id={block.id}
+                          value={block.text}
+                          rows="1"
+                          placeholder={
+                            contentBlocks.length === 1
+                              ? "粘贴正文，或直接粘贴图片…"
+                              : "继续输入…"
+                          }
+                          spellCheck="false"
+                          onFocus={(event) =>
+                            rememberTextSelection(event, block.id)
+                          }
+                          onSelect={(event) =>
+                            rememberTextSelection(event, block.id)
+                          }
+                          onClick={(event) =>
+                            rememberTextSelection(event, block.id)
+                          }
+                          onKeyUp={(event) =>
+                            rememberTextSelection(event, block.id)
+                          }
+                          onKeyDown={(event) =>
+                            splitTextBlock(event, block.id)
+                          }
+                          onPaste={(event) =>
+                            handleContentPaste(event, block.id)
+                          }
+                          onChange={(event) =>
+                            updateTextBlock(
+                              block.id,
+                              event.currentTarget.value,
+                              event.currentTarget.selectionStart,
+                            )
+                          }
+                        />
+                      );
+                    }
+
+                    if (block.type === "pendingMedia") {
+                      return (
+                        <div className="pending-media-block" key={block.id}>
+                          <UploadSimple weight="bold" />
+                          正在读取 {block.count} 张图片…
+                        </div>
+                      );
+                    }
+
+                    if (block.type === "pageBreak") {
+                      return (
+                        <div className="page-break-block" key={block.id}>
+                          <span>从这里开始新卡片</span>
+                          <button
+                            type="button"
+                            onClick={() => removeContentBlock(block.id)}
+                            aria-label="删除手动分页"
+                            title="删除分页"
+                          >
+                            <Trash weight="bold" />
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    if (block.type === "media") {
+                      const asset = block.asset;
+                      return (
+                        <div className="content-media-block" key={block.id}>
+                          <div
+                            className="content-media-preview"
+                            style={{
+                              aspectRatio:
+                                getImageEditorAspectRatio(asset),
+                            }}
+                          >
+                            <img
+                              src={asset.src}
+                              alt={asset.name}
+                              style={{
+                                objectFit: getImageEditorFit(asset),
+                              }}
+                            />
+                          </div>
+                          <div className="content-media-toolbar">
+                            <div className="content-media-name">
+                              <strong title={asset.name}>{asset.name}</strong>
+                              <span>
+                                {asset.width} × {asset.height}
+                              </span>
+                            </div>
+                            <select
+                              className="content-media-ratio"
+                              value={asset.aspectRatio || "original"}
+                              aria-label={`${asset.name}的显示比例`}
+                              onChange={(event) =>
+                                setMediaAspectRatio(
+                                  asset.id,
+                                  event.target.value,
+                                )
+                              }
+                            >
+                              <option value="16:9">16:9</option>
+                              <option value="original">原图</option>
+                              <option value="4:3">4:3</option>
+                              <option value="1:1">1:1</option>
+                            </select>
+                            <div
+                              className="content-media-actions"
+                              aria-label={`${asset.name}的排序操作`}
+                            >
+                              <button
+                                type="button"
+                                disabled={blockIndex === 0}
+                                onClick={() =>
+                                  moveContentBlock(block.id, -1)
+                                }
+                                aria-label={`上移 ${asset.name}`}
+                                title="向上一段"
+                              >
+                                <CaretUp weight="bold" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  blockIndex === contentBlocks.length - 1
+                                }
+                                onClick={() =>
+                                  moveContentBlock(block.id, 1)
+                                }
+                                aria-label={`下移 ${asset.name}`}
+                                title="向下一段"
+                              >
+                                <CaretDown weight="bold" />
+                              </button>
+                              <button
+                                className="content-media-remove"
+                                type="button"
+                                onClick={() => removeContentBlock(block.id)}
+                                aria-label={`移除 ${asset.name}`}
+                                title="移除"
+                              >
+                                <Trash weight="bold" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                  <div className="content-editor-footer">
+                    <button
+                      className="insert-image-button"
+                      type="button"
+                      disabled={
+                        pendingImageReads > 0 ||
+                        Boolean(exportState) ||
+                        media.length >= MAX_UPLOADS
+                      }
+                      onClick={openImagePicker}
+                    >
+                      <UploadSimple weight="bold" />
+                      在光标处添加图片
+                    </button>
+                    <span>也可直接粘贴或拖入 · 默认 16:9 居中裁切</span>
+                  </div>
+                </div>
+
                 <input
                   ref={fileInputRef}
                   hidden
@@ -1145,37 +1707,21 @@ export function App() {
                   accept="image/*"
                   multiple
                   onChange={(event) => {
-                    addFiles(event.target.files);
+                    addFiles(
+                      event.target.files,
+                      pendingFilePlacementRef.current,
+                    );
+                    pendingFilePlacementRef.current = null;
                     event.target.value = "";
                   }}
                 />
 
-                {media.length ? (
-                  <div className="media-list">
-                    {media.map((asset) => (
-                      <div className="media-row" key={asset.id}>
-                        <img src={asset.src} alt="" />
-                        <div>
-                          <strong>{asset.name}</strong>
-                          <span>
-                            {asset.width} × {asset.height}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setMedia((current) =>
-                              current.filter((item) => item.id !== asset.id),
-                            )
-                          }
-                          aria-label={`移除 ${asset.name}`}
-                        >
-                          <Trash weight="bold" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                <div className="inline-actions">
+                  <span>{text.replace(/\s|---/g, "").length} 字</span>
+                  <button type="button" onClick={insertPageBreak}>
+                    + 从光标处分新卡片
+                  </button>
+                </div>
               </section>
             </div>
           ) : (
