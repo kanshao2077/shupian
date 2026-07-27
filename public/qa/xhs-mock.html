@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN" data-pianke-xhs-mock="true">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>薯片小红书填充模拟验收</title>
+    <style>
+      body {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 24px;
+        background: #f6f7f8;
+        color: #202124;
+        font-family: "PingFang SC", sans-serif;
+      }
+
+      button,
+      input,
+      .ProseMirror {
+        width: 100%;
+        min-height: 44px;
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        border: 1px solid #d9dce1;
+        border-radius: 8px;
+        background: #fff;
+        font: inherit;
+      }
+
+      button {
+        width: auto;
+      }
+
+      .ProseMirror {
+        min-height: 180px;
+      }
+
+      .img-preview-area {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .img-preview-area .pr {
+        width: 72px;
+        height: 96px;
+        border-radius: 8px;
+        background: #25272b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>发布笔记</h1>
+    <button class="creator-tab" type="button">上传图文</button>
+    <input
+      class="upload-input"
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+    />
+    <main id="editor-root"></main>
+
+    <script>
+      const tinyPng =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLx3wAAAABJRU5ErkJggg==";
+      const draft = {
+        title: "自动填充验收标题",
+        body: "第一段正文。\n\n第二段正文。",
+        images: [tinyPng, tinyPng],
+      };
+
+      globalThis.chrome = globalThis.chrome || {};
+      globalThis.chrome.runtime = {
+        sendMessage: async (message) =>
+          message.action === "PIANKE_GET_DRAFT"
+            ? { ok: true, draft }
+            : { ok: true },
+      };
+
+      const upload = document.querySelector(".upload-input");
+      upload.addEventListener("change", () => {
+        window.setTimeout(() => {
+          document.querySelector("#editor-root").innerHTML = `
+            <div class="img-preview-area">
+              ${Array.from(upload.files)
+                .map(() => '<div class="pr"></div>')
+                .join("")}
+            </div>
+            <div class="d-input">
+              <input placeholder="填写标题会有更多赞哦" maxlength="20" />
+            </div>
+            <div
+              class="tiptap ProseMirror"
+              contenteditable="true"
+              data-placeholder="输入正文描述"
+              role="textbox"
+            ></div>
+          `;
+        }, 250);
+      });
+    </script>
+    <script src="/browser-extension/xhs-fill.js"></script>
+  </body>
+</html>

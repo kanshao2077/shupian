@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>薯片设计对照</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 28px;
+        background: #070809;
+        color: #f2f1ed;
+        font-family: "PingFang SC", sans-serif;
+      }
+
+      header {
+        width: min(1180px, 100%);
+        margin: 0 auto 18px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0;
+        color: #81858c;
+        font-size: 12px;
+      }
+
+      main {
+        width: min(1180px, 100%);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin: 0 auto;
+      }
+
+      figure {
+        margin: 0;
+      }
+
+      figcaption {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 9px;
+        color: #b5b7bb;
+        font-size: 11px;
+      }
+
+      .frame {
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid #272a2f;
+        border-radius: 18px;
+        background: #111315;
+      }
+
+      img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: contain;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>图一结构 × 图二身份 × 3:4 暗色适配</h1>
+      <p>源图按比例完整放入 3:4 框；实现图为实际导出的 1080×1440 PNG。</p>
+    </header>
+    <main>
+      <figure>
+        <figcaption><span>源参考</span><span>1080 × 1531</span></figcaption>
+        <div class="frame">
+          <img src="/qa/source-card.png" alt="图一源参考" />
+        </div>
+      </figure>
+      <figure>
+        <figcaption><span>实现导出</span><span>1080 × 1440</span></figcaption>
+        <div class="frame">
+          <img src="/qa/implementation-card.png" alt="薯片暗色实现" />
+        </div>
+      </figure>
+    </main>
+  </body>
+</html>

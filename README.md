@@ -1,0 +1,77 @@
+# 薯片
+
+把长文和图片切成一片片 3:4 小红书卡片，再把标题、正文和图片辅助填入小红书创作后台。
+
+[在线使用](https://kanshao2077.github.io/shupian/) · [下载浏览器插件](https://github.com/kanshao2077/shupian/releases/latest/download/shupian-xhs-assistant.zip)
+
+![薯片工作台](qa/theme-light-desktop.png)
+
+## 它能做什么
+
+- 长文自动分页，生成 1080 × 1440 的 3:4 卡片。
+- 添加任意比例图片，完整显示并自动加圆角。
+- 自定义头像、昵称、日期、背景、字号和底部标识。
+- 一键复制标题和正文，一键打包下载全部卡片。
+- 配合浏览器插件，把标题、正文和卡片图填入小红书后台。
+- 自动跟随系统切换亮色和暗色界面。
+
+## 最简单的使用方法
+
+1. 打开[在线版薯片](https://kanshao2077.github.io/shupian/)。
+2. 修改标题、作者信息和正文，需要时添加图片。
+3. 在“样式”里调整背景、圆角和字号。
+4. 点击“导出”下载全部卡片，或安装下面的插件后点击“一键填充小红书”。
+
+## 安装小红书发布助手
+
+目前插件需要手动安装一次，支持 Chrome 和 Edge。
+
+1. [下载插件压缩包](https://github.com/kanshao2077/shupian/releases/latest/download/shupian-xhs-assistant.zip)。
+2. 解压下载的 ZIP 文件，里面会有一个 `browser-extension` 文件夹。
+3. Chrome 打开 `chrome://extensions/`；Edge 打开 `edge://extensions/`。
+4. 打开右上角的“开发者模式”。
+5. 点击“加载已解压的扩展程序”，选择刚才解压出的 `browser-extension` 文件夹。
+6. 刷新薯片网页。作者信息下方显示“发布助手已连接”，就说明安装成功。
+
+之后在薯片里完成图文，点击“一键填充小红书”。插件会打开小红书创作后台并尝试填入卡片、标题和正文。请先校对，最终的“发布”按钮仍由你自己点击。
+
+## 隐私与安全
+
+- 网页没有账号系统和后端，编辑内容只在当前浏览器页面中处理。
+- 插件只把待发布素材临时保存在浏览器本地。
+- 插件不会点击小红书的“发布”或“定时发布”按钮。
+- 小红书后台结构变化时，自动填充可能失效；插件会提示你手动检查，不会继续误操作。
+
+## 本地运行
+
+需要 Node.js 20 或更高版本。
+
+```bash
+npm install
+npm run dev
+```
+
+然后打开 `http://localhost:4173/`。
+
+构建正式版本：
+
+```bash
+npm run build
+```
+
+运行项目自带检查：
+
+```bash
+npm run test:sites
+```
+
+## 自动部署
+
+推送到 `main` 分支后，GitHub Actions 会自动构建并更新 GitHub Pages。部署配置在 `.github/workflows/pages.yml`。
+
+## 已知限制
+
+- GitHub Pages 和 GitHub 文件下载在中国大陆的速度与稳定性无法保证。
+- 浏览器插件暂未上架 Chrome 应用商店，因此需要按上面的步骤手动安装。
+- 自动填充依赖小红书创作后台的页面结构，后续可能需要随小红书更新。
+

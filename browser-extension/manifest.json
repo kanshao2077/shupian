@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "薯片｜小红书发布助手",
+  "version": "0.1.0",
+  "description": "把薯片生成的标题、正文和卡片图自动填入小红书创作后台，最终发布由用户确认。",
+  "permissions": ["storage"],
+  "host_permissions": ["https://creator.xiaohongshu.com/*"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "打开薯片图文切片工作台",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://kanshao2077.github.io/shupian/*",
+        "http://localhost:4173/*",
+        "http://127.0.0.1:4173/*",
+        "http://terminal.local:4173/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://creator.xiaohongshu.com/*"],
+      "js": ["xhs-fill.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
