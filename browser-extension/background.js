@@ -77,5 +77,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.action.onClicked.addListener(() => {
-  chrome.tabs.create({ url: "https://kanshao2077.github.io/shupian/" });
+  chrome.tabs.create({ url: "https://www.kanshao2077.cn/shupian/" });
 });

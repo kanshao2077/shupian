@@ -26,6 +26,8 @@
   "content_scripts": [
     {
       "matches": [
+        "https://www.kanshao2077.cn/shupian/*",
+        "http://www.kanshao2077.cn/shupian/*",
         "https://kanshao2077.github.io/shupian/*",
         "http://localhost:4173/*",
         "http://127.0.0.1:4173/*",

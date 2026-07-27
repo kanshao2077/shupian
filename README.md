@@ -2,7 +2,7 @@
 
 把长文和图片切成一片片 3:4 小红书卡片，再把标题、正文和图片辅助填入小红书创作后台。
 
-[在线使用](https://kanshao2077.github.io/shupian/) · [下载浏览器插件](https://github.com/kanshao2077/shupian/releases/latest/download/shupian-xhs-assistant.zip)
+[在线使用](https://www.kanshao2077.cn/shupian/) · [下载浏览器插件](https://github.com/kanshao2077/shupian/releases/latest/download/shupian-xhs-assistant.zip)
 
 ![薯片工作台](qa/theme-light-desktop.png)
 
@@ -17,7 +17,7 @@
 
 ## 最简单的使用方法
 
-1. 打开[在线版薯片](https://kanshao2077.github.io/shupian/)。
+1. 打开[在线版薯片](https://www.kanshao2077.cn/shupian/)。
 2. 修改标题、作者信息和正文，需要时添加图片。
 3. 在“样式”里调整背景、圆角和字号。
 4. 点击“导出”下载全部卡片，或安装下面的插件后点击“一键填充小红书”。
@@ -74,4 +74,3 @@ npm run test:sites
 - GitHub Pages 和 GitHub 文件下载在中国大陆的速度与稳定性无法保证。
 - 浏览器插件暂未上架 Chrome 应用商店，因此需要按上面的步骤手动安装。
 - 自动填充依赖小红书创作后台的页面结构，后续可能需要随小红书更新。
-

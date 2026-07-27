@@ -7,7 +7,7 @@
 1. 在 Chrome 打开 `chrome://extensions/`。
 2. 开启“开发者模式”，选择“加载已解压的扩展程序”。
 3. 选择解压后的 `browser-extension` 文件夹。
-4. 打开 `https://kanshao2077.github.io/shupian/`，确认作者区下方显示“发布助手已连接”。
+4. 打开 `https://www.kanshao2077.cn/shupian/`，确认作者区下方显示“发布助手已连接”。
 5. 补齐标题、正文和图片，点击“一键填充小红书”。
 6. 扩展会打开小红书创作后台并填入素材；校对后由你点击最终发布。
 
