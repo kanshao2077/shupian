@@ -21,6 +21,8 @@ import {
   TextT,
   Trash,
   UploadSimple,
+  WarningCircle,
+  XLogo,
 } from "@phosphor-icons/react";
 import { toBlob } from "html-to-image";
 import JSZip from "jszip";
@@ -33,6 +35,9 @@ const MAX_UPLOADS = 6;
 const MAX_IMAGE_EDGE = 2400;
 const MAX_IMAGE_FILE_SIZE = 25 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 64_000_000;
+const MINERAL_BACKGROUND_STORAGE_KEY =
+  "shupian:mineral-background:v1";
+const MAX_STORED_BACKGROUND_LENGTH = 2_400_000;
 const APP_MESSAGE_SOURCE = "PIANKE_CARD_STUDIO";
 const EXTENSION_MESSAGE_SOURCE = "PIANKE_BROWSER_ASSISTANT";
 const APP_ASSET_BASE = import.meta.env.BASE_URL;
@@ -68,6 +73,32 @@ const DEFAULT_TEXT = `从 Codex 额度重置这件事里，
 
 const DEFAULT_SHORT_TEXT = `种一棵树最好的时间是十年前，
 其次是现在。`;
+
+function limitShortText(value) {
+  const sourceLines = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .split("\n");
+  const limitedLines =
+    sourceLines.length <= 8
+      ? sourceLines
+      : [
+          ...sourceLines.slice(0, 7),
+          sourceLines.slice(7).join(" "),
+        ];
+  let visibleCharacterCount = 0;
+  let result = "";
+
+  for (const character of Array.from(limitedLines.join("\n"))) {
+    if (!/\s/.test(character)) {
+      if (visibleCharacterCount >= 80) break;
+      visibleCharacterCount += 1;
+    }
+    result += character;
+  }
+
+  return result;
+}
 
 const SHORT_STYLE_OPTIONS = [
   {
@@ -189,25 +220,116 @@ function getMediaHeight(media) {
   return Math.min(760, Math.max(150, naturalHeight));
 }
 
-function getShortPosterFontSize(style, preferredSize, value) {
-  const characterCount = value.replace(/\s/g, "").length;
-  const lineCount = Math.max(1, value.split("\n").length);
+function getShortPosterFontSize(
+  style,
+  preferredSize,
+  value,
+  lineHeight,
+  letterSpacing,
+) {
+  if (!value.trim()) return preferredSize;
 
-  if (style === "highlight") {
-    if (lineCount >= 3) return Math.min(preferredSize, 48);
-    if (lineCount === 2 && characterCount <= 24) {
-      return Math.min(preferredSize, 60);
+  const maxWidth = style === "mineral" ? 900 : 846;
+  const maxHeight = style === "mineral" ? 620 : 204;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const explicitLines = value.split(/\r?\n/);
+
+  const fits = (fontSize) => {
+    context.font =
+      style === "mineral"
+        ? `560 ${fontSize}px "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif`
+        : `700 ${fontSize}px "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`;
+
+    let visualLineCount = 0;
+
+    explicitLines.forEach((line) => {
+      const characters = Array.from(line);
+      if (!characters.length) {
+        visualLineCount += 1;
+        return;
+      }
+
+      let currentLineWidth = 0;
+      visualLineCount += 1;
+      const safeWidth = maxWidth * 0.93;
+
+      const addCharacters = (tokenCharacters) => {
+        tokenCharacters.forEach((character) => {
+          const characterWidth =
+            context.measureText(character).width +
+            (currentLineWidth > 0 ? letterSpacing : 0);
+
+          if (
+            currentLineWidth > 0 &&
+            currentLineWidth + characterWidth > safeWidth
+          ) {
+            visualLineCount += 1;
+            currentLineWidth = Math.max(
+              0,
+              context.measureText(character).width,
+            );
+          } else {
+            currentLineWidth += characterWidth;
+          }
+        });
+      };
+
+      const tokens =
+        line.match(/[A-Za-z0-9]+|\s+|[^A-Za-z0-9\s]/gu) || [];
+
+      tokens.forEach((token) => {
+        const tokenCharacters = Array.from(token);
+        const isLatinWord = /^[A-Za-z0-9]+$/u.test(token);
+        const tokenWidth =
+          context.measureText(token).width +
+          Math.max(0, tokenCharacters.length - 1) * letterSpacing;
+
+        if (isLatinWord && tokenWidth <= safeWidth) {
+          const leadingSpacing =
+            currentLineWidth > 0 ? letterSpacing : 0;
+
+          if (
+            currentLineWidth > 0 &&
+            currentLineWidth + leadingSpacing + tokenWidth > safeWidth
+          ) {
+            visualLineCount += 1;
+            currentLineWidth = tokenWidth;
+          } else {
+            currentLineWidth += leadingSpacing + tokenWidth;
+          }
+          return;
+        }
+
+        if (isLatinWord && currentLineWidth > 0) {
+          visualLineCount += 1;
+          currentLineWidth = 0;
+        }
+
+        addCharacters(tokenCharacters);
+      });
+    });
+
+    return (
+      visualLineCount * fontSize * lineHeight <= maxHeight - 8
+    );
+  };
+
+  let smallest = 12;
+  let largest = Math.max(smallest, Math.round(preferredSize));
+  let resolvedSize = smallest;
+
+  while (smallest <= largest) {
+    const candidate = Math.floor((smallest + largest) / 2);
+    if (fits(candidate)) {
+      resolvedSize = candidate;
+      smallest = candidate + 1;
+    } else {
+      largest = candidate - 1;
     }
-    if (characterCount > 42) return Math.min(preferredSize, 42);
-    if (characterCount > 30) return Math.min(preferredSize, 48);
-    if (characterCount > 18) return Math.min(preferredSize, 54);
-    return preferredSize;
   }
 
-  if (characterCount > 60) return Math.min(preferredSize, 58);
-  if (characterCount > 42) return Math.min(preferredSize, 68);
-  if (characterCount > 28) return Math.min(preferredSize, 78);
-  return preferredSize;
+  return Math.min(preferredSize, resolvedSize);
 }
 
 function paginateContent(contentBlocks, fontSize, lineHeight) {
@@ -364,6 +486,141 @@ function readImageFile(file) {
   });
 }
 
+function getStoredMineralBackground() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const storedValue = window.localStorage.getItem(
+      MINERAL_BACKGROUND_STORAGE_KEY,
+    );
+    if (!storedValue) return null;
+
+    const parsedValue = JSON.parse(storedValue);
+    if (
+      typeof parsedValue?.src !== "string" ||
+      !parsedValue.src.startsWith("data:image/")
+    ) {
+      return null;
+    }
+
+    return {
+      src: parsedValue.src,
+      name:
+        typeof parsedValue.name === "string"
+          ? parsedValue.name
+          : "自定义背景",
+      remembered: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readMineralBackgroundFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("请选择图片文件"));
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_FILE_SIZE) {
+      reject(new Error("背景图片不能超过 25 MB"));
+      return;
+    }
+
+    const sourceUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        if (image.naturalWidth * image.naturalHeight > MAX_IMAGE_PIXELS) {
+          throw new Error("背景图片像素过大");
+        }
+
+        const targetWidth = CARD_WIDTH;
+        const targetHeight = CARD_HEIGHT;
+        const targetRatio = targetWidth / targetHeight;
+        const sourceRatio = image.naturalWidth / image.naturalHeight;
+        let sourceWidth = image.naturalWidth;
+        let sourceHeight = image.naturalHeight;
+        let sourceX = 0;
+        let sourceY = 0;
+
+        if (sourceRatio > targetRatio) {
+          sourceWidth = Math.round(image.naturalHeight * targetRatio);
+          sourceX = Math.round((image.naturalWidth - sourceWidth) / 2);
+        } else {
+          sourceHeight = Math.round(image.naturalWidth / targetRatio);
+          sourceY = Math.round((image.naturalHeight - sourceHeight) / 2);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#eef0ef";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        context.drawImage(
+          image,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          targetWidth,
+          targetHeight,
+        );
+
+        let src = canvas.toDataURL("image/jpeg", 0.84);
+        if (src.length > MAX_STORED_BACKGROUND_LENGTH) {
+          src = canvas.toDataURL("image/jpeg", 0.62);
+        }
+        if (src.length > MAX_STORED_BACKGROUND_LENGTH) {
+          const compactCanvas = document.createElement("canvas");
+          compactCanvas.width = 900;
+          compactCanvas.height = 1200;
+          compactCanvas
+            .getContext("2d")
+            .drawImage(
+              canvas,
+              0,
+              0,
+              compactCanvas.width,
+              compactCanvas.height,
+            );
+          src = compactCanvas.toDataURL("image/jpeg", 0.68);
+        }
+        if (src.length > MAX_STORED_BACKGROUND_LENGTH) {
+          throw new Error("背景图片压缩后仍然过大，请换一张");
+        }
+
+        resolve({
+          src,
+          name: file.name || "自定义背景",
+        });
+      } catch (error) {
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("无法处理背景图片"),
+        );
+      } finally {
+        image.onload = null;
+        image.onerror = null;
+        image.src = "";
+        URL.revokeObjectURL(sourceUrl);
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(sourceUrl);
+      reject(new Error("无法读取背景图片"));
+    };
+    image.src = sourceUrl;
+  });
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -441,20 +698,18 @@ const CardCanvas = forwardRef(function CardCanvas(
     fontSize,
     lineHeight,
     watermark,
+    footerMarkType,
     cardMode,
     shortStyle,
     shortText,
     shortSettings,
+    shortBackgrounds,
+    shortFontSize,
   },
   ref,
 ) {
   const palette = getPalette(background);
   const shortSetting = shortSettings[shortStyle];
-  const shortFontSize = getShortPosterFontSize(
-    shortStyle,
-    shortSetting.fontSize,
-    shortText,
-  );
 
   if (cardMode === "short") {
     return (
@@ -471,12 +726,12 @@ const CardCanvas = forwardRef(function CardCanvas(
             "--card-radius": `${cardRadius}px`,
             "--short-text-color": shortSetting.textColor,
             "--short-font-size": `${shortFontSize}px`,
-            backgroundImage: `url("${SHORT_POSTER_BACKGROUNDS[shortStyle]}")`,
+            "--short-line-height": shortSetting.lineHeight,
+            "--short-letter-spacing": `${shortSetting.letterSpacing}px`,
+            backgroundImage: `url("${shortBackgrounds[shortStyle]}")`,
           }}
         >
-          <div className="short-poster-copy">
-            {shortText || "在这里写下一句话。"}
-          </div>
+          <div className="short-poster-copy">{shortText}</div>
 
           {shortStyle === "highlight" ? (
             <footer className="short-poster-author">
@@ -563,7 +818,19 @@ const CardCanvas = forwardRef(function CardCanvas(
 
         <footer className="card-footer">
           <div className="card-divider" />
-          <span>{watermark}</span>
+          <div className="card-footer-mark">
+            {footerMarkType === "x" ? (
+              <span
+                className="card-platform-mark"
+                role="img"
+                aria-label="X 标识"
+              >
+                <XLogo weight="bold" aria-hidden="true" />
+              </span>
+            ) : watermark ? (
+              <span className="card-custom-mark">{watermark}</span>
+            ) : null}
+          </div>
         </footer>
       </div>
     </article>
@@ -654,9 +921,22 @@ export function App() {
   const [shortText, setShortText] = useState(DEFAULT_SHORT_TEXT);
   const [shortStyle, setShortStyle] = useState("mineral");
   const [shortSettings, setShortSettings] = useState({
-    mineral: { fontSize: 132, textColor: "#B45C06" },
-    highlight: { fontSize: 62, textColor: "#111111" },
+    mineral: {
+      fontSize: 132,
+      textColor: "#B45C06",
+      lineHeight: 1.42,
+      letterSpacing: 0,
+    },
+    highlight: {
+      fontSize: 68,
+      textColor: "#111111",
+      lineHeight: 1.3,
+      letterSpacing: -0.8,
+    },
   });
+  const [customMineralBackground, setCustomMineralBackground] = useState(
+    getStoredMineralBackground,
+  );
   const [postTitle, setPostTitle] = useState("从额度重置，看见新的工作节奏");
   const [author, setAuthor] = useState("侃少2077");
   const [date, setDate] = useState("2026-07-27");
@@ -667,10 +947,11 @@ export function App() {
   const [fontSize, setFontSize] = useState(42);
   const [lineHeight, setLineHeight] = useState(1.55);
   const [watermark, setWatermark] = useState("Created with 薯片");
+  const [footerMarkType, setFooterMarkType] = useState("x");
   const [selectedPage, setSelectedPage] = useState(0);
   const [exportState, setExportState] = useState("");
   const [activeAction, setActiveAction] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [extensionReady, setExtensionReady] = useState(false);
   const [pendingImageReads, setPendingImageReads] = useState(0);
@@ -678,6 +959,8 @@ export function App() {
 
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
+  const mineralBackgroundInputRef = useRef(null);
+  const mineralBackgroundRequestRef = useRef(0);
   const textBlockRefs = useRef(new Map());
   const activeTextSelectionRef = useRef(null);
   const pendingFilePlacementRef = useRef(null);
@@ -711,6 +994,28 @@ export function App() {
   );
   const postBody = cardMode === "short" ? shortText : text;
   const safeSelectedPage = Math.min(selectedPage, pages.length - 1);
+  const shortBackgrounds = useMemo(
+    () => ({
+      ...SHORT_POSTER_BACKGROUNDS,
+      mineral:
+        customMineralBackground?.src ||
+        SHORT_POSTER_BACKGROUNDS.mineral,
+    }),
+    [customMineralBackground],
+  );
+  const resolvedShortFontSize = useMemo(
+    () =>
+      cardMode === "short"
+        ? getShortPosterFontSize(
+            shortStyle,
+            shortSettings[shortStyle].fontSize,
+            shortText,
+            shortSettings[shortStyle].lineHeight,
+            shortSettings[shortStyle].letterSpacing,
+          )
+        : shortSettings[shortStyle].fontSize,
+    [cardMode, shortSettings, shortStyle, shortText],
+  );
 
   useEffect(() => {
     setSelectedPage((current) => Math.min(current, pages.length - 1));
@@ -745,12 +1050,12 @@ export function App() {
     return () => window.removeEventListener("message", handleExtensionMessage);
   }, []);
 
-  const showNotice = useCallback((message) => {
-    setNotice(message);
+  const showNotice = useCallback((message, tone = "success") => {
+    setNotice({ message, tone });
     if (noticeTimeoutRef.current) {
       window.clearTimeout(noticeTimeoutRef.current);
     }
-    noticeTimeoutRef.current = window.setTimeout(() => setNotice(""), 2600);
+    noticeTimeoutRef.current = window.setTimeout(() => setNotice(null), 2600);
   }, []);
 
   const requestExtension = useCallback((type, payload) => {
@@ -800,10 +1105,13 @@ export function App() {
     fontSize,
     lineHeight,
     watermark,
+    footerMarkType,
     cardMode,
     shortStyle,
     shortText,
     shortSettings,
+    shortBackgrounds,
+    shortFontSize: resolvedShortFontSize,
   };
 
   const updateShortSetting = useCallback(
@@ -995,7 +1303,7 @@ export function App() {
   const addFiles = useCallback(
     async (fileList, placement = activeTextSelectionRef.current) => {
       if (pendingImageReads) {
-        showNotice("上一批图片还在读取");
+        showNotice("上一批图片还在读取", "warning");
         return;
       }
 
@@ -1004,7 +1312,7 @@ export function App() {
         .slice(0, Math.max(0, MAX_UPLOADS - media.length));
 
       if (!files.length) {
-        showNotice("请选择图片文件");
+        showNotice("请选择图片文件", "warning");
         return;
       }
 
@@ -1087,7 +1395,7 @@ export function App() {
         setContentBlocks((current) =>
           current.filter((block) => block.id !== pendingBlock.id),
         );
-        showNotice(error.message);
+        showNotice(error.message, "error");
       } finally {
         setPendingImageReads((current) => Math.max(0, current - 1));
       }
@@ -1218,7 +1526,7 @@ export function App() {
 
       if (pendingImageReads) {
         input.value = "";
-        showNotice("头像还在读取");
+        showNotice("头像还在读取", "warning");
         return;
       }
 
@@ -1231,7 +1539,7 @@ export function App() {
         setAvatar(asset.src);
         showNotice("头像已更新");
       } catch (error) {
-        showNotice(error.message);
+        showNotice(error.message, "error");
       } finally {
         input.value = "";
         setPendingImageReads((current) => Math.max(0, current - 1));
@@ -1239,6 +1547,75 @@ export function App() {
     },
     [pendingImageReads, showNotice],
   );
+
+  const onMineralBackgroundChange = useCallback(
+    async (event) => {
+      const input = event.currentTarget;
+
+      if (pendingImageReads) {
+        input.value = "";
+        showNotice("上一张图片还在读取", "warning");
+        return;
+      }
+
+      const [file] = Array.from(input.files || []);
+      if (!file) return;
+
+      const requestId = mineralBackgroundRequestRef.current + 1;
+      mineralBackgroundRequestRef.current = requestId;
+      setPendingImageReads((current) => current + 1);
+      try {
+        const nextBackground = await readMineralBackgroundFile(file);
+        if (requestId !== mineralBackgroundRequestRef.current) {
+          return;
+        }
+        let remembered = true;
+
+        try {
+          window.localStorage.setItem(
+            MINERAL_BACKGROUND_STORAGE_KEY,
+            JSON.stringify(nextBackground),
+          );
+        } catch {
+          remembered = false;
+        }
+
+        setCustomMineralBackground({
+          ...nextBackground,
+          remembered,
+        });
+        showNotice(
+          remembered
+            ? "背景已更换，并保存在当前浏览器"
+            : "背景已更换，但浏览器空间不足，刷新后会恢复",
+          remembered ? "success" : "warning",
+        );
+      } catch (error) {
+        showNotice(error.message, "error");
+      } finally {
+        input.value = "";
+        setPendingImageReads((current) => Math.max(0, current - 1));
+      }
+    },
+    [pendingImageReads, showNotice],
+  );
+
+  const resetMineralBackground = useCallback(() => {
+    mineralBackgroundRequestRef.current += 1;
+    let forgotten = true;
+    try {
+      window.localStorage.removeItem(MINERAL_BACKGROUND_STORAGE_KEY);
+    } catch {
+      forgotten = false;
+    }
+    setCustomMineralBackground(null);
+    showNotice(
+      forgotten
+        ? "已恢复默认材质背景"
+        : "本次已恢复默认，但未能清除浏览器记忆",
+      forgotten ? "success" : "warning",
+    );
+  }, [showNotice]);
 
   const renderCardBlob = useCallback(async (index) => {
     const node = exportRefs.current[index];
@@ -1353,7 +1730,7 @@ export function App() {
             : "浏览器未允许访问剪贴板",
       );
     } catch (error) {
-      showNotice(error.message);
+      showNotice(error.message, "error");
     } finally {
       setExportState("");
       setActiveAction("");
@@ -1377,9 +1754,12 @@ export function App() {
         await navigator.clipboard.writeText(
           `${postTitle}\n\n${postBody}`.trim(),
         );
-        showNotice("浏览器助手未连接；标题正文已先复制");
+        showNotice(
+          "浏览器助手未连接；标题正文已先复制",
+          "warning",
+        );
       } catch {
-        showNotice("请先加载配套浏览器扩展");
+        showNotice("请先加载配套浏览器扩展", "warning");
       }
       return;
     }
@@ -1393,7 +1773,7 @@ export function App() {
       if (error.message === "浏览器助手未连接") {
         setExtensionReady(false);
       }
-      showNotice(error.message);
+      showNotice(error.message, "error");
     } finally {
       setExportState("");
       setActiveAction("");
@@ -1430,7 +1810,7 @@ export function App() {
       downloadBlob(bundle, `薯片卡片-${pages.length}张.zip`);
       showNotice(`${pages.length} 张卡片已打包下载`);
     } catch (error) {
-      showNotice(error.message);
+      showNotice(error.message, "error");
     } finally {
       setExportState("");
       setActiveAction("");
@@ -1580,18 +1960,23 @@ export function App() {
                 </div>
 
                 {cardMode === "short" ? (
-                  <div className="short-style-grid" aria-label="短文样式">
+                  <div
+                    className="short-style-grid"
+                    role="group"
+                    aria-label="短文样式"
+                  >
                     {SHORT_STYLE_OPTIONS.map((option) => (
                       <button
                         type="button"
                         key={option.id}
                         className={shortStyle === option.id ? "is-active" : ""}
+                        aria-pressed={shortStyle === option.id}
                         onClick={() => setShortStyle(option.id)}
                       >
                         <span
                           className="short-style-preview"
                           style={{
-                            backgroundImage: `url("${SHORT_POSTER_BACKGROUNDS[option.id]}")`,
+                            backgroundImage: `url("${shortBackgrounds[option.id]}")`,
                           }}
                         />
                         <span className="short-style-copy">
@@ -1602,50 +1987,125 @@ export function App() {
                     ))}
                   </div>
                 ) : null}
+
+                {cardMode === "short" && shortStyle === "mineral" ? (
+                  <div className="mineral-background-control">
+                    <button
+                      type="button"
+                      className="mineral-background-upload"
+                      disabled={
+                        pendingImageReads > 0 || Boolean(exportState)
+                      }
+                      onClick={() =>
+                        mineralBackgroundInputRef.current?.click()
+                      }
+                      aria-label={
+                        customMineralBackground
+                          ? customMineralBackground.remembered
+                            ? "更换材质大字背景，当前自定义背景已保存"
+                            : "更换材质大字背景，当前背景刷新后会恢复"
+                          : "更换材质大字背景，当前使用默认背景"
+                      }
+                    >
+                      <span
+                        className="mineral-background-preview"
+                        style={{
+                          backgroundImage: `url("${shortBackgrounds.mineral}")`,
+                        }}
+                      />
+                      <span>
+                        <strong>
+                          {customMineralBackground
+                            ? "自定义背景"
+                            : "默认材质背景"}
+                        </strong>
+                        <small>
+                          {customMineralBackground
+                            ? customMineralBackground.remembered
+                              ? "已保存在当前浏览器"
+                              : "本次使用 · 刷新后恢复"
+                            : "点击上传 · 自动裁成 3:4"}
+                        </small>
+                      </span>
+                      <UploadSimple weight="bold" />
+                    </button>
+                    {customMineralBackground ? (
+                      <button
+                        type="button"
+                        className="mineral-background-reset"
+                        disabled={
+                          pendingImageReads > 0 || Boolean(exportState)
+                        }
+                        onClick={resetMineralBackground}
+                      >
+                        恢复默认
+                      </button>
+                    ) : null}
+                    <input
+                      ref={mineralBackgroundInputRef}
+                      hidden
+                      type="file"
+                      accept="image/*"
+                      onChange={onMineralBackgroundChange}
+                    />
+                  </div>
+                ) : null}
               </section>
 
               <section className="control-section">
                 <div className="section-heading">
-                  <h2>作者信息</h2>
+                  <h2>
+                    {cardMode === "short" && shortStyle === "mineral"
+                      ? "发布信息"
+                      : "作者信息"}
+                  </h2>
                 </div>
 
-                <div className="profile-editor">
-                  <button
-                    type="button"
-                    className="avatar-button"
-                    disabled={pendingImageReads > 0 || Boolean(exportState)}
-                    onClick={() => avatarInputRef.current?.click()}
-                    aria-label="更换头像"
-                  >
-                    <img src={avatar} alt="" />
-                    <span>更换</span>
-                  </button>
-                  <input
-                    ref={avatarInputRef}
-                    hidden
-                    type="file"
-                    accept="image/*"
-                    onChange={onAvatarChange}
-                  />
-                  <div className="profile-fields">
-                    <label>
-                      昵称
-                      <input
-                        value={author}
-                        onChange={(event) => setAuthor(event.target.value)}
-                        maxLength={18}
-                      />
-                    </label>
-                    <label>
-                      日期
-                      <input
-                        value={date}
-                        onChange={(event) => setDate(event.target.value)}
-                        maxLength={20}
-                      />
-                    </label>
+                {cardMode !== "short" || shortStyle === "highlight" ? (
+                  <div className="profile-editor">
+                    <button
+                      type="button"
+                      className="avatar-button"
+                      disabled={
+                        pendingImageReads > 0 || Boolean(exportState)
+                      }
+                      onClick={() => avatarInputRef.current?.click()}
+                      aria-label="更换头像"
+                    >
+                      <img src={avatar} alt="" />
+                      <span>更换</span>
+                    </button>
+                    <input
+                      ref={avatarInputRef}
+                      hidden
+                      type="file"
+                      accept="image/*"
+                      onChange={onAvatarChange}
+                    />
+                    <div className="profile-fields">
+                      <label>
+                        昵称
+                        <input
+                          value={author}
+                          onChange={(event) =>
+                            setAuthor(event.target.value)
+                          }
+                          maxLength={18}
+                        />
+                      </label>
+                      <label>
+                        日期
+                        <input
+                          value={date}
+                          onChange={(event) =>
+                            setDate(event.target.value)
+                          }
+                          maxLength={20}
+                        />
+                      </label>
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
                 <label className="stacked-field publish-title-field">
                   <span>
@@ -1914,16 +2374,19 @@ export function App() {
 
                   <textarea
                     value={shortText}
-                    onChange={(event) => setShortText(event.target.value)}
-                    maxLength={80}
+                    onChange={(event) =>
+                      setShortText(limitShortText(event.target.value))
+                    }
                     rows="6"
                     placeholder="写下一句值得被看见的话…"
                     spellCheck="false"
                   />
 
                   <div className="short-copy-meta">
-                    <span>{shortText.replace(/\s/g, "").length} / 80 字</span>
-                    <span>内容越短，字号越大</span>
+                    <span>
+                      {Array.from(shortText.replace(/\s/g, "")).length} / 80 字
+                    </span>
+                    <span>最多 8 行 · 自动缩放</span>
                   </div>
                 </section>
               )}
@@ -1974,7 +2437,7 @@ export function App() {
                 <label className="range-field">
                   <span>
                     卡片圆角
-                    <output>{cardRadius}px</output>
+                    <span className="range-output">{cardRadius}px</span>
                   </span>
                   <input
                     type="range"
@@ -1991,7 +2454,7 @@ export function App() {
                 <label className="range-field">
                   <span>
                     图片圆角
-                    <output>{imageRadius}px</output>
+                    <span className="range-output">{imageRadius}px</span>
                   </span>
                   <input
                     type="range"
@@ -2015,7 +2478,7 @@ export function App() {
                 <label className="range-field">
                   <span>
                     正文字号
-                    <output>{fontSize}px</output>
+                    <span className="range-output">{fontSize}px</span>
                   </span>
                   <input
                     type="range"
@@ -2032,7 +2495,9 @@ export function App() {
                 <label className="range-field">
                   <span>
                     正文行高
-                    <output>{lineHeight.toFixed(2)}</output>
+                    <span className="range-output">
+                      {lineHeight.toFixed(2)}
+                    </span>
                   </span>
                   <input
                     type="range"
@@ -2046,14 +2511,47 @@ export function App() {
                   />
                 </label>
 
-                <label className="stacked-field">
-                  底部标识
-                  <input
-                    value={watermark}
-                    onChange={(event) => setWatermark(event.target.value)}
-                    maxLength={36}
-                  />
-                </label>
+                <div
+                  className="footer-mark-options"
+                  role="group"
+                  aria-label="底部标识"
+                >
+                  <button
+                    type="button"
+                    className={
+                      footerMarkType === "x" ? "is-active" : ""
+                    }
+                    aria-pressed={footerMarkType === "x"}
+                    onClick={() => setFooterMarkType("x")}
+                  >
+                    <XLogo weight="bold" aria-hidden="true" />
+                    X 标识
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      footerMarkType === "custom" ? "is-active" : ""
+                    }
+                    aria-pressed={footerMarkType === "custom"}
+                    onClick={() => setFooterMarkType("custom")}
+                  >
+                    自定义文字
+                  </button>
+                </div>
+
+                {footerMarkType === "custom" ? (
+                  <label className="stacked-field footer-mark-input">
+                    标识文字
+                    <input
+                      value={watermark}
+                      onChange={(event) =>
+                        setWatermark(event.target.value)
+                      }
+                      maxLength={36}
+                    />
+                    <small>只显示在卡片右下角。</small>
+                  </label>
+                ) : null}
               </section>
 
                   <p className="settings-note">
@@ -2066,26 +2564,73 @@ export function App() {
                     <div className="section-heading">
                       <h2>短句排版</h2>
                       <span className="section-value">
-                        {shortSettings[shortStyle].fontSize}px
+                        实际 {resolvedShortFontSize}px
                       </span>
                     </div>
 
                     <label className="range-field">
                       <span>
-                        文字大小
-                        <output>
+                        最大字号
+                        <span className="range-output">
                           {shortSettings[shortStyle].fontSize}px
-                        </output>
+                        </span>
                       </span>
                       <input
                         type="range"
-                        min={shortStyle === "mineral" ? "56" : "42"}
+                        min={shortStyle === "mineral" ? "56" : "36"}
                         max={shortStyle === "mineral" ? "144" : "72"}
                         step="2"
                         value={shortSettings[shortStyle].fontSize}
                         onChange={(event) =>
                           updateShortSetting(
                             "fontSize",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+
+                    <label className="range-field">
+                      <span>
+                        行距
+                        <span className="range-output">
+                          {shortSettings[shortStyle].lineHeight.toFixed(2)}
+                        </span>
+                      </span>
+                      <input
+                        type="range"
+                        min="1.2"
+                        max="1.65"
+                        step="0.01"
+                        value={shortSettings[shortStyle].lineHeight}
+                        onChange={(event) =>
+                          updateShortSetting(
+                            "lineHeight",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+
+                    <label className="range-field">
+                      <span>
+                        字距
+                        <span className="range-output">
+                          {shortSettings[shortStyle].letterSpacing > 0
+                            ? "+"
+                            : ""}
+                          {shortSettings[shortStyle].letterSpacing}px
+                        </span>
+                      </span>
+                      <input
+                        type="range"
+                        min="-4"
+                        max="8"
+                        step="0.2"
+                        value={shortSettings[shortStyle].letterSpacing}
+                        onChange={(event) =>
+                          updateShortSetting(
+                            "letterSpacing",
                             Number(event.target.value),
                           )
                         }
@@ -2118,7 +2663,9 @@ export function App() {
                     <label className="range-field">
                       <span>
                         卡片圆角
-                        <output>{cardRadius}px</output>
+                        <span className="range-output">
+                          {cardRadius}px
+                        </span>
                       </span>
                       <input
                         type="range"
@@ -2135,8 +2682,8 @@ export function App() {
 
                   <p className="settings-note">
                     {shortStyle === "highlight"
-                      ? "重点摘录会显示当前头像、昵称和日期。"
-                      : "材质大字会自动保留充足留白，不显示作者栏。"}
+                      ? "长句会自动缩小，重点摘录会显示当前头像、昵称和日期。"
+                      : "长句会自动缩小并优化换行；材质大字不显示作者栏。"}
                   </p>
                 </>
               )}
@@ -2240,9 +2787,16 @@ export function App() {
       </div>
 
       {notice ? (
-        <div className="notice" role="status">
-          <CheckCircle weight="fill" />
-          {notice}
+        <div
+          className={`notice is-${notice.tone}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.tone === "success" ? (
+            <CheckCircle weight="fill" />
+          ) : (
+            <WarningCircle weight="fill" />
+          )}
+          {notice.message}
         </div>
       ) : null}
     </div>
