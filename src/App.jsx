@@ -38,6 +38,10 @@ const EXTENSION_MESSAGE_SOURCE = "PIANKE_BROWSER_ASSISTANT";
 const APP_ASSET_BASE = import.meta.env.BASE_URL;
 const DEFAULT_AVATAR = `${APP_ASSET_BASE}assets/avatar-kan-shao.png`;
 const APP_LOGO = `${APP_ASSET_BASE}assets/shupian-logo.png`;
+const SHORT_POSTER_BACKGROUNDS = {
+  mineral: `${APP_ASSET_BASE}assets/short-poster-mineral.png`,
+  highlight: `${APP_ASSET_BASE}assets/short-poster-highlight.png`,
+};
 const IMAGE_ASPECT_RATIOS = {
   "16:9": 16 / 9,
   "4:3": 4 / 3,
@@ -61,6 +65,22 @@ const DEFAULT_TEXT = `从 Codex 额度重置这件事里，
 我们居然已经开始围着一个 Agent 的额度，
 
 安排自己的工作节奏了。`;
+
+const DEFAULT_SHORT_TEXT = `种一棵树最好的时间是十年前，
+其次是现在。`;
+
+const SHORT_STYLE_OPTIONS = [
+  {
+    id: "mineral",
+    name: "材质大字",
+    description: "留白与宋体",
+  },
+  {
+    id: "highlight",
+    name: "重点摘录",
+    description: "高亮与落款",
+  },
+];
 
 const COLOR_PRESETS = [
   { name: "曜石", value: "#121214" },
@@ -167,6 +187,27 @@ function getMediaHeight(media) {
 
   const naturalHeight = (CONTENT_WIDTH * media.height) / media.width;
   return Math.min(760, Math.max(150, naturalHeight));
+}
+
+function getShortPosterFontSize(style, preferredSize, value) {
+  const characterCount = value.replace(/\s/g, "").length;
+  const lineCount = Math.max(1, value.split("\n").length);
+
+  if (style === "highlight") {
+    if (lineCount >= 3) return Math.min(preferredSize, 48);
+    if (lineCount === 2 && characterCount <= 24) {
+      return Math.min(preferredSize, 60);
+    }
+    if (characterCount > 42) return Math.min(preferredSize, 42);
+    if (characterCount > 30) return Math.min(preferredSize, 48);
+    if (characterCount > 18) return Math.min(preferredSize, 54);
+    return preferredSize;
+  }
+
+  if (characterCount > 60) return Math.min(preferredSize, 58);
+  if (characterCount > 42) return Math.min(preferredSize, 68);
+  if (characterCount > 28) return Math.min(preferredSize, 78);
+  return preferredSize;
 }
 
 function paginateContent(contentBlocks, fontSize, lineHeight) {
@@ -400,10 +441,56 @@ const CardCanvas = forwardRef(function CardCanvas(
     fontSize,
     lineHeight,
     watermark,
+    cardMode,
+    shortStyle,
+    shortText,
+    shortSettings,
   },
   ref,
 ) {
   const palette = getPalette(background);
+  const shortSetting = shortSettings[shortStyle];
+  const shortFontSize = getShortPosterFontSize(
+    shortStyle,
+    shortSetting.fontSize,
+    shortText,
+  );
+
+  if (cardMode === "short") {
+    return (
+      <article
+        ref={ref}
+        className="card-export-frame short-poster-frame"
+        aria-label={`短文海报，${SHORT_STYLE_OPTIONS.find(
+          (option) => option.id === shortStyle,
+        )?.name || "短文样式"}`}
+      >
+        <div
+          className={`card-surface short-poster-surface is-${shortStyle}`}
+          style={{
+            "--card-radius": `${cardRadius}px`,
+            "--short-text-color": shortSetting.textColor,
+            "--short-font-size": `${shortFontSize}px`,
+            backgroundImage: `url("${SHORT_POSTER_BACKGROUNDS[shortStyle]}")`,
+          }}
+        >
+          <div className="short-poster-copy">
+            {shortText || "在这里写下一句话。"}
+          </div>
+
+          {shortStyle === "highlight" ? (
+            <footer className="short-poster-author">
+              <img src={avatar} alt="" />
+              <div>
+                <strong>{author || "未命名"}</strong>
+                <time>{date}</time>
+              </div>
+            </footer>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article
@@ -548,7 +635,11 @@ function CardThumbnail({
       </span>
       <span className="thumbnail-meta">
         <span>{String(index + 1).padStart(2, "0")}</span>
-        <span>{page.elements.length} 个内容块</span>
+        <span>
+          {cardProps.cardMode === "short"
+            ? "短文海报"
+            : `${page.elements.length} 个内容块`}
+        </span>
       </span>
     </button>
   );
@@ -556,9 +647,16 @@ function CardThumbnail({
 
 export function App() {
   const [activePanel, setActivePanel] = useState("content");
+  const [cardMode, setCardMode] = useState("long");
   const [contentBlocks, setContentBlocks] = useState(() =>
     createInitialContentBlocks(DEFAULT_TEXT),
   );
+  const [shortText, setShortText] = useState(DEFAULT_SHORT_TEXT);
+  const [shortStyle, setShortStyle] = useState("mineral");
+  const [shortSettings, setShortSettings] = useState({
+    mineral: { fontSize: 132, textColor: "#B45C06" },
+    highlight: { fontSize: 62, textColor: "#111111" },
+  });
   const [postTitle, setPostTitle] = useState("从额度重置，看见新的工作节奏");
   const [author, setAuthor] = useState("侃少2077");
   const [date, setDate] = useState("2026-07-27");
@@ -605,9 +703,13 @@ export function App() {
     [contentBlocks],
   );
   const pages = useMemo(
-    () => paginateContent(contentBlocks, fontSize, lineHeight),
-    [contentBlocks, fontSize, lineHeight],
+    () =>
+      cardMode === "short"
+        ? [{ elements: [] }]
+        : paginateContent(contentBlocks, fontSize, lineHeight),
+    [cardMode, contentBlocks, fontSize, lineHeight],
   );
+  const postBody = cardMode === "short" ? shortText : text;
   const safeSelectedPage = Math.min(selectedPage, pages.length - 1);
 
   useEffect(() => {
@@ -698,7 +800,24 @@ export function App() {
     fontSize,
     lineHeight,
     watermark,
+    cardMode,
+    shortStyle,
+    shortText,
+    shortSettings,
   };
+
+  const updateShortSetting = useCallback(
+    (key, value) => {
+      setShortSettings((current) => ({
+        ...current,
+        [shortStyle]: {
+          ...current[shortStyle],
+          [key]: value,
+        },
+      }));
+    },
+    [shortStyle],
+  );
 
   const focusTextBlock = useCallback((blockId, cursorPosition = 0) => {
     window.requestAnimationFrame(() => {
@@ -1157,14 +1276,14 @@ export function App() {
         payload: {
           version: 1,
           title: postTitle.trim(),
-          body: text.trim(),
+          body: postBody.trim(),
           images,
           author: author.trim(),
           createdAt: new Date().toISOString(),
         },
       };
     },
-    [author, pages.length, postTitle, renderCardBlob, text],
+    [author, pages.length, postBody, postTitle, renderCardBlob],
   );
 
   const copyPost = useCallback(async () => {
@@ -1172,7 +1291,7 @@ export function App() {
     setActiveAction("copy");
 
     try {
-      const plainText = `${postTitle.trim()}\n\n${text.trim()}`.trim();
+      const plainText = `${postTitle.trim()}\n\n${postBody.trim()}`.trim();
       const assetsPromise = preparePostAssets("正在复制图文");
       let richClipboardPromise = null;
 
@@ -1244,6 +1363,7 @@ export function App() {
     extensionReady,
     pendingImageReads,
     pages.length,
+    postBody,
     preparePostAssets,
     requestExtension,
     showNotice,
@@ -1254,7 +1374,9 @@ export function App() {
 
     if (!extensionReady) {
       try {
-        await navigator.clipboard.writeText(`${postTitle}\n\n${text}`.trim());
+        await navigator.clipboard.writeText(
+          `${postTitle}\n\n${postBody}`.trim(),
+        );
         showNotice("浏览器助手未连接；标题正文已先复制");
       } catch {
         showNotice("请先加载配套浏览器扩展");
@@ -1280,11 +1402,11 @@ export function App() {
     exportState,
     extensionReady,
     pendingImageReads,
+    postBody,
     postTitle,
     preparePostAssets,
     requestExtension,
     showNotice,
-    text,
   ]);
 
   const exportAll = useCallback(async () => {
@@ -1423,6 +1545,65 @@ export function App() {
 
           {activePanel === "content" ? (
             <div className="panel-content">
+              <section className="control-section mode-section">
+                <div className="section-heading">
+                  <h2>卡片模式</h2>
+                </div>
+
+                <div className="card-mode-switch" role="radiogroup" aria-label="卡片模式">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={cardMode === "long"}
+                    className={cardMode === "long" ? "is-active" : ""}
+                    onClick={() => {
+                      setCardMode("long");
+                      setSelectedPage(0);
+                    }}
+                  >
+                    <strong>长文卡片</strong>
+                    <span>自动分页</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={cardMode === "short"}
+                    className={cardMode === "short" ? "is-active" : ""}
+                    onClick={() => {
+                      setCardMode("short");
+                      setSelectedPage(0);
+                    }}
+                  >
+                    <strong>短文海报</strong>
+                    <span>一句成图</span>
+                  </button>
+                </div>
+
+                {cardMode === "short" ? (
+                  <div className="short-style-grid" aria-label="短文样式">
+                    {SHORT_STYLE_OPTIONS.map((option) => (
+                      <button
+                        type="button"
+                        key={option.id}
+                        className={shortStyle === option.id ? "is-active" : ""}
+                        onClick={() => setShortStyle(option.id)}
+                      >
+                        <span
+                          className="short-style-preview"
+                          style={{
+                            backgroundImage: `url("${SHORT_POSTER_BACKGROUNDS[option.id]}")`,
+                          }}
+                        />
+                        <span className="short-style-copy">
+                          <strong>{option.name}</strong>
+                          <small>{option.description}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+
               <section className="control-section">
                 <div className="section-heading">
                   <h2>作者信息</h2>
@@ -1488,7 +1669,8 @@ export function App() {
                 </div>
               </section>
 
-              <section className="control-section text-section">
+              {cardMode === "long" ? (
+                <section className="control-section text-section">
                 <div className="section-heading">
                   <h2>图文内容</h2>
                   <span className="page-count">{pages.length} 张</span>
@@ -1722,11 +1904,35 @@ export function App() {
                     + 从光标处分新卡片
                   </button>
                 </div>
-              </section>
+                </section>
+              ) : (
+                <section className="control-section short-copy-section">
+                  <div className="section-heading">
+                    <h2>短句内容</h2>
+                    <span className="page-count">1 张</span>
+                  </div>
+
+                  <textarea
+                    value={shortText}
+                    onChange={(event) => setShortText(event.target.value)}
+                    maxLength={80}
+                    rows="6"
+                    placeholder="写下一句值得被看见的话…"
+                    spellCheck="false"
+                  />
+
+                  <div className="short-copy-meta">
+                    <span>{shortText.replace(/\s/g, "").length} / 80 字</span>
+                    <span>内容越短，字号越大</span>
+                  </div>
+                </section>
+              )}
             </div>
           ) : (
             <div className="panel-content">
-              <section className="control-section">
+              {cardMode === "long" ? (
+                <>
+                  <section className="control-section">
                 <div className="section-heading">
                   <h2>卡片背景</h2>
                 </div>
@@ -1850,16 +2056,101 @@ export function App() {
                 </label>
               </section>
 
-              <p className="settings-note">
-                设置会同步到每张卡片，PNG 保留透明圆角。
-              </p>
+                  <p className="settings-note">
+                    设置会同步到每张卡片，PNG 保留透明圆角。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <section className="control-section">
+                    <div className="section-heading">
+                      <h2>短句排版</h2>
+                      <span className="section-value">
+                        {shortSettings[shortStyle].fontSize}px
+                      </span>
+                    </div>
+
+                    <label className="range-field">
+                      <span>
+                        文字大小
+                        <output>
+                          {shortSettings[shortStyle].fontSize}px
+                        </output>
+                      </span>
+                      <input
+                        type="range"
+                        min={shortStyle === "mineral" ? "56" : "42"}
+                        max={shortStyle === "mineral" ? "144" : "72"}
+                        step="2"
+                        value={shortSettings[shortStyle].fontSize}
+                        onChange={(event) =>
+                          updateShortSetting(
+                            "fontSize",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+
+                    <label className="color-field">
+                      <span>
+                        文字颜色
+                        <small>
+                          {shortSettings[shortStyle].textColor.toUpperCase()}
+                        </small>
+                      </span>
+                      <input
+                        type="color"
+                        value={shortSettings[shortStyle].textColor}
+                        onChange={(event) =>
+                          updateShortSetting("textColor", event.target.value)
+                        }
+                      />
+                    </label>
+                  </section>
+
+                  <section className="control-section">
+                    <div className="section-heading">
+                      <h2>海报圆角</h2>
+                      <span className="section-value">{cardRadius}px</span>
+                    </div>
+
+                    <label className="range-field">
+                      <span>
+                        卡片圆角
+                        <output>{cardRadius}px</output>
+                      </span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="96"
+                        step="4"
+                        value={cardRadius}
+                        onChange={(event) =>
+                          setCardRadius(Number(event.target.value))
+                        }
+                      />
+                    </label>
+                  </section>
+
+                  <p className="settings-note">
+                    {shortStyle === "highlight"
+                      ? "重点摘录会显示当前头像、昵称和日期。"
+                      : "材质大字会自动保留充足留白，不显示作者栏。"}
+                  </p>
+                </>
+              )}
             </div>
           )}
         </aside>
 
         <section className="preview-panel" id="live-preview">
           <div className="preview-toolbar">
-            <h1>实时预览 · 第 {safeSelectedPage + 1} 张</h1>
+            <h1>
+              {cardMode === "short"
+                ? "短文海报预览"
+                : `实时预览 · 第 ${safeSelectedPage + 1} 张`}
+            </h1>
             <div className="preview-navigation">
               <button
                 type="button"

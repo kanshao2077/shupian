@@ -314,6 +314,111 @@ button:disabled {
   font-weight: 650;
 }
 
+.card-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.card-mode-switch button {
+  min-height: 56px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 9px 11px;
+  border: 1px solid #2d3035;
+  border-radius: 8px;
+  background: #15171a;
+  text-align: left;
+}
+
+.card-mode-switch button:hover {
+  border-color: #454a53;
+}
+
+.card-mode-switch button.is-active {
+  border-color: #688fe7;
+  background: #171c27;
+  box-shadow: inset 0 0 0 1px rgba(104, 143, 231, 0.17);
+}
+
+.card-mode-switch strong {
+  color: #d4d4d7;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card-mode-switch span {
+  color: #666b73;
+  font-size: 9px;
+}
+
+.card-mode-switch button.is-active strong {
+  color: #dfe8ff;
+}
+
+.short-style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.short-style-grid > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid #2d3035;
+  border-radius: 8px;
+  background: #111316;
+  text-align: left;
+}
+
+.short-style-grid > button:hover {
+  border-color: #454a53;
+}
+
+.short-style-grid > button.is-active {
+  border-color: #8b7562;
+  background: #1b1815;
+}
+
+.short-style-preview {
+  width: 42px;
+  height: 56px;
+  display: block;
+  border-radius: 5px;
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.11);
+}
+
+.short-style-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.short-style-copy strong {
+  overflow: hidden;
+  color: #d3d2ce;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.short-style-copy small {
+  overflow: hidden;
+  color: #686b72;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profile-editor {
   display: grid;
   grid-template-columns: 66px 1fr;
@@ -862,6 +967,38 @@ button:disabled {
   padding: 0 2px;
 }
 
+.short-copy-section textarea {
+  width: 100%;
+  min-height: 164px;
+  resize: vertical;
+  padding: 13px;
+  border: 1px solid #292c31;
+  border-radius: 8px;
+  outline: 0;
+  background: #141619;
+  color: #e9e7e2;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.short-copy-section textarea:focus {
+  border-color: #4d73c9;
+  background: #17191d;
+}
+
+.short-copy-section textarea::placeholder {
+  color: #555960;
+}
+
+.short-copy-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  color: #60646b;
+  font-size: 9px;
+}
+
 .color-presets {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1147,6 +1284,96 @@ button:disabled {
   overflow: hidden;
   border-radius: var(--card-radius);
   background: var(--card-background);
+}
+
+.short-poster-frame {
+  color: #111111;
+}
+
+.short-poster-surface {
+  background-color: #eef0ef;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.short-poster-copy {
+  position: absolute;
+  margin: 0;
+  overflow: hidden;
+  color: var(--short-text-color);
+  font-size: var(--short-font-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.short-poster-surface.is-mineral .short-poster-copy {
+  top: 398px;
+  left: 62px;
+  width: 930px;
+  max-height: 660px;
+  font-family:
+    "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC",
+    serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.56;
+}
+
+.short-poster-surface.is-highlight .short-poster-copy {
+  top: 529px;
+  left: 118px;
+  width: 846px;
+  height: 216px;
+  display: flex;
+  align-items: center;
+  font-family:
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-weight: 760;
+  letter-spacing: -0.015em;
+  line-height: 1.46;
+}
+
+.short-poster-author {
+  position: absolute;
+  left: 116px;
+  bottom: 76px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  color: #151515;
+}
+
+.short-poster-author img {
+  width: 88px;
+  height: 88px;
+  display: block;
+  object-fit: cover;
+  border: 2px solid rgba(17, 17, 17, 0.08);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.short-poster-author > div {
+  display: grid;
+  gap: 4px;
+}
+
+.short-poster-author strong {
+  max-width: 480px;
+  overflow: hidden;
+  font-size: 31px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.short-poster-author time {
+  color: rgba(17, 17, 17, 0.64);
+  font-size: 28px;
+  font-weight: 430;
+  line-height: 1.2;
 }
 
 .card-author {
@@ -1694,6 +1921,41 @@ button:disabled {
     border-color: #e1e5ea;
   }
 
+  .card-mode-switch button,
+  .short-style-grid > button {
+    border-color: #d8dee6;
+    background: #f6f8fa;
+  }
+
+  .card-mode-switch button:hover,
+  .short-style-grid > button:hover {
+    border-color: #b7c0ca;
+  }
+
+  .card-mode-switch button.is-active {
+    border-color: #688fe7;
+    background: #edf2ff;
+  }
+
+  .card-mode-switch strong,
+  .short-style-copy strong {
+    color: #30363d;
+  }
+
+  .card-mode-switch span,
+  .short-style-copy small {
+    color: #78818d;
+  }
+
+  .card-mode-switch button.is-active strong {
+    color: #365eaf;
+  }
+
+  .short-style-grid > button.is-active {
+    border-color: #a8937f;
+    background: #f4f0eb;
+  }
+
   .inline-media-editor {
     border-color: #e1e5ea;
   }
@@ -1741,6 +2003,21 @@ button:disabled {
   .text-section textarea:focus {
     border-color: #7c99df;
     background: #ffffff;
+  }
+
+  .short-copy-section textarea {
+    border-color: #d6dce4;
+    background: #f6f8fa;
+    color: #20242a;
+  }
+
+  .short-copy-section textarea:focus {
+    border-color: #7c99df;
+    background: #ffffff;
+  }
+
+  .short-copy-meta {
+    color: #78818d;
   }
 
   .avatar-button,

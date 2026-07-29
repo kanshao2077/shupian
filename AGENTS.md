@@ -7,3 +7,5 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
 Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` intact so the same local prototype can be handed to Sites. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.
+
+Keep long-form and short-form creation as separate, low-friction modes. Short-form cards are always 3:4 and currently have two presets: “材质大字” for a large serif sentence without an author row, and “重点摘录” for a highlighted quote with avatar, author, and date. Switching modes or presets must preserve what the user has already typed.
