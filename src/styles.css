@@ -1536,10 +1536,12 @@ button:disabled {
 }
 
 .short-poster-surface.is-mineral .short-poster-copy {
-  top: 414px;
-  left: 72px;
-  width: 900px;
-  max-height: 620px;
+  top: 270px;
+  left: 58px;
+  width: 964px;
+  height: 900px;
+  display: flex;
+  align-items: center;
   font-family:
     "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC",
     serif;
@@ -1547,12 +1549,16 @@ button:disabled {
 }
 
 .short-poster-surface.is-highlight .short-poster-copy {
-  top: 535px;
-  left: 118px;
-  width: 846px;
-  height: 204px;
+  top: 390px;
+  left: 104px;
+  width: 872px;
+  height: 520px;
   display: flex;
   align-items: center;
+  padding: 28px 32px;
+  border-radius: 4px;
+  background: rgba(246, 216, 218, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(198, 78, 84, 0.08);
   font-family:
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   font-weight: 700;

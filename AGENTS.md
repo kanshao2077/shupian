@@ -10,7 +10,11 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 Keep long-form and short-form creation as separate, low-friction modes. Short-form cards are always 3:4 and currently have two presets: “材质大字” for a large serif sentence without an author row, and “重点摘录” for a highlighted quote with avatar, author, and date. Switching modes or presets must preserve what the user has already typed.
 
-Short-form typography must expose maximum font size, line height, and letter spacing while retaining continuous measured shrink-to-fit behavior. Keep input to 80 visible characters and at most 8 lines, using the same counting rules in input and status UI. Avoid orphaned final punctuation or a one-character last line when a balanced wrap is possible.
+Short-form posters favor useful cover density over reproducing the references' large empty margins. Keep the text vertically balanced, allow up to 120 visible characters and 10 explicit lines, and use most of the safe central area before shrinking the type. Do not apply this denser layout to long-form cards.
+
+Short-form typography must expose maximum font size, line height, and letter spacing while retaining continuous measured shrink-to-fit behavior. Keep input to 120 visible characters and at most 10 lines, using the same counting rules in input and status UI. Avoid orphaned final punctuation or a one-character last line when a balanced wrap is possible.
+
+The long-form editor opens with the content panel visible. Its baseline style is obsidian `#121214`, 20 px card radius, 24 px image radius, 47 px body type, 1.45 line height, and the X footer mark.
 
 “材质大字” supports one custom 3:4 background. Process uploads locally, crop and compress them before storage, remember the result only in the current browser origin, and always provide a clear “恢复默认” action. Do not imply cross-device or cross-domain sync.
 

@@ -47,6 +47,12 @@ const SHORT_POSTER_BACKGROUNDS = {
   mineral: `${APP_ASSET_BASE}assets/short-poster-mineral.png`,
   highlight: `${APP_ASSET_BASE}assets/short-poster-highlight.png`,
 };
+const SHORT_POSTER_LAYOUTS = {
+  mineral: { maxWidth: 964, maxHeight: 900 },
+  highlight: { maxWidth: 808, maxHeight: 464 },
+};
+const SHORT_TEXT_CHARACTER_LIMIT = 120;
+const SHORT_TEXT_LINE_LIMIT = 10;
 const IMAGE_ASPECT_RATIOS = {
   "16:9": 16 / 9,
   "4:3": 4 / 3,
@@ -80,18 +86,18 @@ function limitShortText(value) {
     .replace(/[^\S\n]+/g, " ")
     .split("\n");
   const limitedLines =
-    sourceLines.length <= 8
+    sourceLines.length <= SHORT_TEXT_LINE_LIMIT
       ? sourceLines
       : [
-          ...sourceLines.slice(0, 7),
-          sourceLines.slice(7).join(" "),
+          ...sourceLines.slice(0, SHORT_TEXT_LINE_LIMIT - 1),
+          sourceLines.slice(SHORT_TEXT_LINE_LIMIT - 1).join(" "),
         ];
   let visibleCharacterCount = 0;
   let result = "";
 
   for (const character of Array.from(limitedLines.join("\n"))) {
     if (!/\s/.test(character)) {
-      if (visibleCharacterCount >= 80) break;
+      if (visibleCharacterCount >= SHORT_TEXT_CHARACTER_LIMIT) break;
       visibleCharacterCount += 1;
     }
     result += character;
@@ -247,8 +253,7 @@ function getShortPosterFontSize(
 ) {
   if (!value.trim()) return preferredSize;
 
-  const maxWidth = style === "mineral" ? 900 : 846;
-  const maxHeight = style === "mineral" ? 620 : 204;
+  const { maxWidth, maxHeight } = SHORT_POSTER_LAYOUTS[style];
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   const explicitLines = value.split(/\r?\n/);
@@ -270,7 +275,7 @@ function getShortPosterFontSize(
 
       let currentLineWidth = 0;
       visualLineCount += 1;
-      const safeWidth = maxWidth * 0.93;
+      const safeWidth = maxWidth * 0.96;
 
       const addCharacters = (tokenCharacters) => {
         tokenCharacters.forEach((character) => {
@@ -1109,15 +1114,15 @@ export function App() {
   const [shortStyle, setShortStyle] = useState("mineral");
   const [shortSettings, setShortSettings] = useState({
     mineral: {
-      fontSize: 132,
+      fontSize: 124,
       textColor: "#B45C06",
-      lineHeight: 1.42,
+      lineHeight: 1.32,
       letterSpacing: 0,
     },
     highlight: {
-      fontSize: 68,
+      fontSize: 64,
       textColor: "#111111",
-      lineHeight: 1.3,
+      lineHeight: 1.24,
       letterSpacing: -0.8,
     },
   });
@@ -1129,10 +1134,10 @@ export function App() {
   const [date, setDate] = useState("2026-07-27");
   const [avatar, setAvatar] = useState(DEFAULT_AVATAR);
   const [background, setBackground] = useState("#121214");
-  const [cardRadius, setCardRadius] = useState(64);
-  const [imageRadius, setImageRadius] = useState(28);
-  const [fontSize, setFontSize] = useState(42);
-  const [lineHeight, setLineHeight] = useState(1.55);
+  const [cardRadius, setCardRadius] = useState(20);
+  const [imageRadius, setImageRadius] = useState(24);
+  const [fontSize, setFontSize] = useState(47);
+  const [lineHeight, setLineHeight] = useState(1.45);
   const [watermark, setWatermark] = useState("Created with 薯片");
   const [footerMarkType, setFooterMarkType] = useState("x");
   const [selectedPage, setSelectedPage] = useState(0);
@@ -2582,9 +2587,9 @@ export function App() {
 
                   <div className="short-copy-meta">
                     <span>
-                      {Array.from(shortText.replace(/\s/g, "")).length} / 80 字
+                      {Array.from(shortText.replace(/\s/g, "")).length} / {SHORT_TEXT_CHARACTER_LIMIT} 字
                     </span>
-                    <span>最多 8 行 · 自动缩放</span>
+                    <span>最多 {SHORT_TEXT_LINE_LIMIT} 行 · 自动缩放</span>
                   </div>
                 </section>
               )}
