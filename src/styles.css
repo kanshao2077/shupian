@@ -1608,9 +1608,9 @@ button:disabled {
 
 .card-author {
   position: absolute;
-  top: 88px;
-  left: 88px;
-  right: 88px;
+  top: 80px;
+  left: 64px;
+  right: 64px;
   height: 96px;
   display: flex;
   align-items: center;
@@ -1666,10 +1666,10 @@ button:disabled {
 
 .card-body {
   position: absolute;
-  top: 244px;
-  left: 88px;
-  width: 904px;
-  height: 968px;
+  top: 222px;
+  left: 64px;
+  width: 952px;
+  height: 1000px;
   overflow: hidden;
 }
 
@@ -1687,9 +1687,16 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.card-text-line {
+  display: block;
+  min-height: 1em;
+  white-space: pre-wrap;
+}
+
 .card-text-editor {
   width: 100%;
   height: auto;
+  display: block;
   min-height: 1.5em;
   margin: 0;
   padding: 0;
@@ -1737,6 +1744,10 @@ button:disabled {
   background: var(--media-background);
 }
 
+.card-body > * + .card-media {
+  margin-top: var(--paragraph-gap);
+}
+
 .card-media img {
   max-width: 100%;
   max-height: 100%;
@@ -1747,9 +1758,9 @@ button:disabled {
 
 .card-footer {
   position: absolute;
-  left: 88px;
-  right: 88px;
-  bottom: 62px;
+  left: 64px;
+  right: 64px;
+  bottom: 52px;
   height: 112px;
 }
 
@@ -2012,7 +2023,7 @@ button:disabled {
 
   .topbar-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.25fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
   }
 
@@ -2093,6 +2104,10 @@ button:disabled {
 }
 
 @media (max-width: 520px) {
+  .topbar-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .brand-lockup > div:last-child span {
     display: none;
   }

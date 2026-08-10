@@ -1,5 +1,4 @@
 import {
-  Fragment,
   forwardRef,
   useCallback,
   useEffect,
@@ -14,6 +13,7 @@ import {
   CaretUp,
   CheckCircle,
   ClipboardText,
+  DownloadSimple,
   Package,
   PaperPlaneTilt,
   SealCheck,
@@ -29,8 +29,8 @@ import JSZip from "jszip";
 
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1440;
-const CONTENT_WIDTH = 904;
-const BODY_HEIGHT = 968;
+const CONTENT_WIDTH = 952;
+const BODY_HEIGHT = 1000;
 const MAX_UPLOADS = 6;
 const MAX_IMAGE_EDGE = 2400;
 const MAX_IMAGE_FILE_SIZE = 25 * 1024 * 1024;
@@ -996,12 +996,14 @@ const CardCanvas = forwardRef(function CardCanvas(
             }
 
             return (
-              <p key={`text-${elementIndex}`}>
+              <p className="card-static-text" key={`text-${elementIndex}`}>
                 {element.lines.map((line, lineIndex) => (
-                  <Fragment key={`${line}-${lineIndex}`}>
-                    {line}
-                    {lineIndex < element.lines.length - 1 ? <br /> : null}
-                  </Fragment>
+                  <span
+                    className="card-text-line"
+                    key={`${line}-${lineIndex}`}
+                  >
+                    {line || "\u00A0"}
+                  </span>
                 ))}
               </p>
             );
@@ -1983,7 +1985,7 @@ export function App() {
 
   const exportAll = useCallback(async () => {
     if (exportState || pendingImageReads) return;
-    setActiveAction("export");
+    setActiveAction("export-all");
     const zip = new JSZip();
 
     try {
@@ -2012,6 +2014,33 @@ export function App() {
     pages.length,
     pendingImageReads,
     renderCardBlob,
+    showNotice,
+  ]);
+
+  const exportCurrent = useCallback(async () => {
+    if (exportState || pendingImageReads) return;
+    setActiveAction("export-current");
+
+    try {
+      const pageNumber = safeSelectedPage + 1;
+      setExportState(`正在导出第 ${pageNumber} 张…`);
+      const blob = await renderCardBlob(safeSelectedPage);
+      downloadBlob(
+        blob,
+        `薯片-${String(pageNumber).padStart(2, "0")}.png`,
+      );
+      showNotice(`第 ${pageNumber} 张卡片已下载`);
+    } catch (error) {
+      showNotice(error.message, "error");
+    } finally {
+      setExportState("");
+      setActiveAction("");
+    }
+  }, [
+    exportState,
+    pendingImageReads,
+    renderCardBlob,
+    safeSelectedPage,
     showNotice,
   ]);
 
@@ -2058,11 +2087,21 @@ export function App() {
           <button
             className="button secondary"
             type="button"
+            onClick={exportCurrent}
+            disabled={Boolean(exportState) || pendingImageReads > 0}
+            title={`只导出当前预览的第 ${safeSelectedPage + 1} 张`}
+          >
+            <DownloadSimple weight="bold" />
+            {activeAction === "export-current" ? exportState : "导出本页"}
+          </button>
+          <button
+            className="button secondary"
+            type="button"
             onClick={exportAll}
             disabled={Boolean(exportState) || pendingImageReads > 0}
           >
             <Package weight="fill" />
-            {activeAction === "export"
+            {activeAction === "export-all"
               ? exportState
               : `导出 ${pages.length} 张`}
           </button>
