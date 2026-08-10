@@ -30,7 +30,7 @@ import JSZip from "jszip";
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1440;
 const CONTENT_WIDTH = 952;
-const BODY_HEIGHT = 1000;
+const BODY_HEIGHT = 1048;
 const MAX_UPLOADS = 6;
 const MAX_IMAGE_EDGE = 2400;
 const MAX_IMAGE_FILE_SIZE = 25 * 1024 * 1024;
@@ -193,8 +193,13 @@ function wrapText(value, fontSize) {
         start: currentStart,
         end: characterStart,
       });
-      currentLine = character;
-      currentStart = characterStart;
+      if (/^\s$/u.test(character)) {
+        currentLine = "";
+        currentStart = characterEnd;
+      } else {
+        currentLine = character;
+        currentStart = characterStart;
+      }
     }
     offset = characterEnd;
   }
@@ -202,6 +207,35 @@ function wrapText(value, fontSize) {
   if (currentLine) {
     lines.push({ text: currentLine, start: currentStart, end: offset });
   }
+
+  const lastLine = lines.at(-1);
+  const previousLine = lines.at(-2);
+  const minimumLastLineLength = 5;
+  const lastLineCharacters = Array.from(lastLine?.text || "");
+  const previousLineCharacters = Array.from(previousLine?.text || "");
+
+  if (
+    lastLine &&
+    previousLine &&
+    lastLineCharacters.length > 0 &&
+    lastLineCharacters.length < minimumLastLineLength &&
+    previousLineCharacters.length > minimumLastLineLength + 2
+  ) {
+    const charactersToMove = Math.min(
+      minimumLastLineLength - lastLineCharacters.length,
+      previousLineCharacters.length - minimumLastLineLength,
+    );
+    const movedText = previousLineCharacters
+      .slice(-charactersToMove)
+      .join("");
+    const movedTextStart = previousLine.end - movedText.length;
+
+    previousLine.text = previousLine.text.slice(0, -movedText.length);
+    previousLine.end = movedTextStart;
+    lastLine.text = movedText + lastLine.text;
+    lastLine.start = movedTextStart;
+  }
+
   return lines;
 }
 
@@ -358,6 +392,7 @@ function getShortPosterFontSize(
 function paginateContent(contentBlocks, fontSize, lineHeight) {
   const pages = [];
   const lineHeightPx = fontSize * lineHeight;
+  const blankLineHeight = Math.max(20, fontSize * 0.52);
   const paragraphGap = Math.max(28, fontSize * 0.86);
   const mediaGap = paragraphGap;
 
@@ -397,20 +432,29 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
       const gap =
         currentPage.elements.length && !canAppendToLast ? paragraphGap : 0;
       const availableHeight = BODY_HEIGHT - currentPage.usedHeight - gap;
-      let lineCapacity = Math.floor(availableHeight / lineHeightPx);
+      const pageLines = [];
+      let pageLinesHeight = 0;
 
-      if (
-        currentPage.elements.length &&
-        (lineCapacity <= 0 ||
-          (lineCapacity === 1 && remainingLines.length > 1))
-      ) {
+      for (const line of remainingLines) {
+        const nextLineHeight = line.text ? lineHeightPx : blankLineHeight;
+        if (pageLinesHeight + nextLineHeight > availableHeight) break;
+        pageLines.push(line);
+        pageLinesHeight += nextLineHeight;
+      }
+
+      if (!pageLines.length && currentPage.elements.length) {
         commitPage();
         continue;
       }
 
-      lineCapacity = Math.max(1, lineCapacity);
-      const pageLines = remainingLines.slice(0, lineCapacity);
-      remainingLines = remainingLines.slice(lineCapacity);
+      if (!pageLines.length) {
+        pageLines.push(remainingLines[0]);
+        pageLinesHeight = remainingLines[0].text
+          ? lineHeightPx
+          : blankLineHeight;
+      }
+
+      remainingLines = remainingLines.slice(pageLines.length);
       const segmentStart = pageLines[0].sourceStart;
       const segmentEnd = pageLines[pageLines.length - 1].sourceEnd;
 
@@ -432,7 +476,7 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
         });
       }
 
-      currentPage.usedHeight += gap + pageLines.length * lineHeightPx;
+      currentPage.usedHeight += gap + pageLinesHeight;
 
       if (remainingLines.length) {
         commitPage();
@@ -773,8 +817,20 @@ function buildPostHtml(payload) {
   )}</h1>${bodyHtml}${imagesHtml}</article>`;
 }
 
+function CardTextLines({ lines }) {
+  return lines.map((line, lineIndex) => (
+    <span
+      className={`card-text-line ${line ? "" : "is-empty"}`}
+      key={`${line}-${lineIndex}`}
+    >
+      {line || "\u00A0"}
+    </span>
+  ));
+}
+
 function EditableCardText({ element, onCommit }) {
   const [draft, setDraft] = useState(element.text);
+  const [editing, setEditing] = useState(false);
   const draftRef = useRef(element.text);
   const cancelRef = useRef(false);
 
@@ -806,11 +862,36 @@ function EditableCardText({ element, onCommit }) {
     }
   };
 
+  if (!editing) {
+    return (
+      <p
+        className={`card-static-text card-text-edit-trigger ${
+          element.placeholder ? "is-placeholder" : ""
+        }`}
+        role="textbox"
+        tabIndex={0}
+        aria-multiline="true"
+        aria-label="整段编辑当前卡片正文"
+        title="点击整段修改；离开输入框后自动重新分页"
+        onClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setEditing(true);
+          }
+        }}
+      >
+        <CardTextLines lines={element.lines} />
+      </p>
+    );
+  }
+
   return (
     <textarea
       className="card-text-editor"
       value={draft}
       rows={Math.max(1, element.lines.length)}
+      autoFocus
       placeholder={element.placeholder}
       spellCheck="false"
       aria-label="整段编辑当前卡片正文"
@@ -819,7 +900,10 @@ function EditableCardText({ element, onCommit }) {
         draftRef.current = event.currentTarget.value;
         setDraft(event.currentTarget.value);
       }}
-      onBlur={commit}
+      onBlur={() => {
+        commit();
+        setEditing(false);
+      }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           cancelRef.current = true;
@@ -936,6 +1020,7 @@ const CardCanvas = forwardRef(function CardCanvas(
         "--image-radius": `${imageRadius}px`,
         "--body-font-size": `${fontSize}px`,
         "--body-line-height": lineHeight,
+        "--blank-line-height": `${Math.max(20, fontSize * 0.52)}px`,
         "--paragraph-gap": `${Math.max(28, fontSize * 0.86)}px`,
       }}
       aria-label={`卡片 ${pageIndex + 1}，共 ${pageCount} 张`}
@@ -997,14 +1082,7 @@ const CardCanvas = forwardRef(function CardCanvas(
 
             return (
               <p className="card-static-text" key={`text-${elementIndex}`}>
-                {element.lines.map((line, lineIndex) => (
-                  <span
-                    className="card-text-line"
-                    key={`${line}-${lineIndex}`}
-                  >
-                    {line || "\u00A0"}
-                  </span>
-                ))}
+                <CardTextLines lines={element.lines} />
               </p>
             );
           })}

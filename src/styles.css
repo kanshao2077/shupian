@@ -1669,7 +1669,7 @@ button:disabled {
   top: 222px;
   left: 64px;
   width: 952px;
-  height: 1000px;
+  height: 1048px;
   overflow: hidden;
 }
 
@@ -1690,7 +1690,30 @@ button:disabled {
 .card-text-line {
   display: block;
   min-height: 1em;
-  white-space: pre-wrap;
+  white-space: pre;
+}
+
+.card-text-line.is-empty {
+  min-height: var(--blank-line-height);
+  line-height: var(--blank-line-height);
+}
+
+.card-text-edit-trigger {
+  cursor: text;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.card-text-edit-trigger:hover,
+.card-text-edit-trigger:focus-visible {
+  outline: 0;
+  background: rgba(93, 140, 255, 0.08);
+  box-shadow: 0 0 0 8px rgba(93, 140, 255, 0.28);
+}
+
+.card-text-edit-trigger.is-placeholder {
+  color: var(--card-secondary);
 }
 
 .card-text-editor {
