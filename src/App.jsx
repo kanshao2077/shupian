@@ -173,26 +173,31 @@ function wrapText(value, fontSize) {
   const context = getContext(fontSize);
   const lines = [];
   let currentLine = "";
+  let currentStart = 0;
+  let offset = 0;
 
   for (const character of Array.from(cleanValue)) {
+    const characterStart = offset;
+    const characterEnd = offset + character.length;
     const candidate = currentLine + character;
     if (context.measureText(candidate).width <= CONTENT_WIDTH || !currentLine) {
       currentLine = candidate;
     } else {
-      lines.push(currentLine);
+      lines.push({
+        text: currentLine,
+        start: currentStart,
+        end: characterStart,
+      });
       currentLine = character;
+      currentStart = characterStart;
     }
+    offset = characterEnd;
   }
 
-  if (currentLine) lines.push(currentLine);
+  if (currentLine) {
+    lines.push({ text: currentLine, start: currentStart, end: offset });
+  }
   return lines;
-}
-
-function getContentParagraphs(value) {
-  return value
-    .split(/\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph && !/^---+$/.test(paragraph));
 }
 
 function createBlockId(prefix) {
@@ -204,10 +209,7 @@ function createTextBlock(text = "", id = createBlockId("text")) {
 }
 
 function createInitialContentBlocks(value) {
-  const paragraphs = getContentParagraphs(value);
-  return paragraphs.length
-    ? paragraphs.map((paragraph) => createTextBlock(paragraph))
-    : [createTextBlock()];
+  return [createTextBlock(value)];
 }
 
 function getMediaHeight(media) {
@@ -376,12 +378,25 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
 
     if (block.type !== "text") return;
 
-    const paragraphs = block.text
-      .split(/\n/)
-      .map((paragraph) => paragraph.trim())
-      .filter(Boolean);
+    const sourceLines = block.text.split("\n");
+    let sourceOffset = 0;
 
-    paragraphs.forEach((paragraph) => {
+    sourceLines.forEach((sourceLine, sourceLineIndex) => {
+      const leadingWhitespace =
+        sourceLine.length - sourceLine.trimStart().length;
+      const trailingWhitespace =
+        sourceLine.length - sourceLine.trimEnd().length;
+      const paragraphStart = sourceOffset + leadingWhitespace;
+      const paragraphEnd =
+        sourceOffset + sourceLine.length - trailingWhitespace;
+      const paragraph = block.text.slice(paragraphStart, paragraphEnd);
+
+      sourceOffset +=
+        sourceLine.length +
+        (sourceLineIndex < sourceLines.length - 1 ? 1 : 0);
+
+      if (!paragraph) return;
+
       if (/^---+$/.test(paragraph)) {
         commitPage();
         return;
@@ -404,13 +419,22 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
         }
 
         lineCapacity = Math.max(1, lineCapacity);
-        const lines = remainingLines.slice(0, lineCapacity);
+        const wrappedLines = remainingLines.slice(0, lineCapacity);
         remainingLines = remainingLines.slice(lineCapacity);
+        const segmentStart = wrappedLines[0].start;
+        const segmentEnd = wrappedLines[wrappedLines.length - 1].end;
 
-        currentPage.elements.push({ type: "text", lines });
+        currentPage.elements.push({
+          type: "text",
+          lines: wrappedLines.map((line) => line.text),
+          text: paragraph.slice(segmentStart, segmentEnd),
+          sourceBlockId: block.id,
+          sourceStart: paragraphStart + segmentStart,
+          sourceEnd: paragraphStart + segmentEnd,
+        });
         currentPage.usedHeight +=
           (currentPage.elements.length > 1 ? gap : 0) +
-          lines.length * lineHeightPx;
+          wrappedLines.length * lineHeightPx;
 
         if (remainingLines.length) {
           commitPage();
@@ -421,9 +445,24 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
 
   commitPage();
 
-  return pages.length
-    ? pages
-    : [{ elements: [{ type: "text", lines: ["在这里写下你的内容。"] }] }];
+  if (pages.length) return pages;
+
+  const emptyTextBlock = contentBlocks.find((block) => block.type === "text");
+  return [
+    {
+      elements: [
+        {
+          type: "text",
+          lines: ["在这里写下你的内容。"],
+          text: "",
+          placeholder: "在这里写下你的内容。",
+          sourceBlockId: emptyTextBlock?.id,
+          sourceStart: 0,
+          sourceEnd: 0,
+        },
+      ],
+    },
+  ];
 }
 
 function readImageFile(file) {
@@ -684,6 +723,73 @@ function buildPostHtml(payload) {
   )}</h1>${bodyHtml}${imagesHtml}</article>`;
 }
 
+function EditableCardText({ element, onCommit }) {
+  const [draft, setDraft] = useState(element.text);
+  const draftRef = useRef(element.text);
+  const cancelRef = useRef(false);
+
+  useEffect(() => {
+    draftRef.current = element.text;
+    setDraft(element.text);
+  }, [
+    element.sourceBlockId,
+    element.sourceStart,
+    element.sourceEnd,
+    element.text,
+  ]);
+
+  const commit = () => {
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      setDraft(element.text);
+      return;
+    }
+
+    const normalizedDraft = draftRef.current.replace(/\r\n?/g, "\n");
+    if (normalizedDraft !== element.text) {
+      onCommit(
+        element.sourceBlockId,
+        element.sourceStart,
+        element.sourceEnd,
+        normalizedDraft,
+      );
+    }
+  };
+
+  return (
+    <textarea
+      className="card-text-editor"
+      value={draft}
+      rows={Math.max(1, element.lines.length)}
+      placeholder={element.placeholder}
+      spellCheck="false"
+      aria-label="直接编辑当前卡片正文"
+      title="直接修改；离开输入框后自动重新分页"
+      onChange={(event) => {
+        draftRef.current = event.currentTarget.value;
+        setDraft(event.currentTarget.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          cancelRef.current = true;
+          draftRef.current = element.text;
+          setDraft(element.text);
+          event.currentTarget.blur();
+        }
+
+        if (
+          event.key === "Enter" &&
+          (event.metaKey || event.ctrlKey)
+        ) {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 const CardCanvas = forwardRef(function CardCanvas(
   {
     page,
@@ -705,6 +811,9 @@ const CardCanvas = forwardRef(function CardCanvas(
     shortSettings,
     shortBackgrounds,
     shortFontSize,
+    editable = false,
+    onLongTextCommit,
+    onShortTextChange,
   },
   ref,
 ) {
@@ -715,7 +824,9 @@ const CardCanvas = forwardRef(function CardCanvas(
     return (
       <article
         ref={ref}
-        className="card-export-frame short-poster-frame"
+        className={`card-export-frame short-poster-frame ${
+          editable ? "is-editable" : ""
+        }`}
         aria-label={`短文海报，${SHORT_STYLE_OPTIONS.find(
           (option) => option.id === shortStyle,
         )?.name || "短文样式"}`}
@@ -731,7 +842,20 @@ const CardCanvas = forwardRef(function CardCanvas(
             backgroundImage: `url("${shortBackgrounds[shortStyle]}")`,
           }}
         >
-          <div className="short-poster-copy">{shortText}</div>
+          {editable ? (
+            <textarea
+              className="short-poster-copy short-poster-copy-editor"
+              value={shortText}
+              placeholder="直接在卡片上写一句话…"
+              spellCheck="false"
+              aria-label="直接编辑短文海报文字"
+              onChange={(event) =>
+                onShortTextChange?.(limitShortText(event.currentTarget.value))
+              }
+            />
+          ) : (
+            <div className="short-poster-copy">{shortText}</div>
+          )}
 
           {shortStyle === "highlight" ? (
             <footer className="short-poster-author">
@@ -750,7 +874,7 @@ const CardCanvas = forwardRef(function CardCanvas(
   return (
     <article
       ref={ref}
-      className="card-export-frame"
+      className={`card-export-frame ${editable ? "is-editable" : ""}`}
       style={{
         "--card-background": background,
         "--card-foreground": palette.foreground,
@@ -779,8 +903,9 @@ const CardCanvas = forwardRef(function CardCanvas(
         </header>
 
         <div className="card-body">
-          {page.elements.map((element, elementIndex) =>
-            element.type === "media" ? (
+          {page.elements.map((element, elementIndex) => {
+            if (element.type === "media") {
+              return (
               <figure
                 className="card-media"
                 key={element.asset.id}
@@ -803,7 +928,24 @@ const CardCanvas = forwardRef(function CardCanvas(
                   }
                 />
               </figure>
-            ) : (
+              );
+            }
+
+            if (
+              editable &&
+              element.sourceBlockId &&
+              onLongTextCommit
+            ) {
+              return (
+                <EditableCardText
+                  key={`text-${element.sourceBlockId}-${element.sourceStart}`}
+                  element={element}
+                  onCommit={onLongTextCommit}
+                />
+              );
+            }
+
+            return (
               <p key={`text-${elementIndex}`}>
                 {element.lines.map((line, lineIndex) => (
                   <Fragment key={`${line}-${lineIndex}`}>
@@ -812,8 +954,8 @@ const CardCanvas = forwardRef(function CardCanvas(
                   </Fragment>
                 ))}
               </p>
-            ),
-          )}
+            );
+          })}
         </div>
 
         <footer className="card-footer">
@@ -983,6 +1125,14 @@ export function App() {
       contentBlocks
         .filter((block) => block.type === "media")
         .map((block) => block.asset),
+    [contentBlocks],
+  );
+  const hasLongContent = useMemo(
+    () =>
+      contentBlocks.some(
+        (block) =>
+          block.type !== "text" || Boolean(block.text.trim()),
+      ),
     [contentBlocks],
   );
   const pages = useMemo(
@@ -1166,77 +1316,84 @@ export function App() {
     };
   }, []);
 
-  const splitTextBlock = useCallback(
+  const updateTextBlockRange = useCallback(
+    (blockId, start, end, value) => {
+      const normalizedValue = value.replace(/\r\n?/g, "\n");
+
+      setContentBlocks((current) =>
+        current.map((block) => {
+          if (block.id !== blockId || block.type !== "text") return block;
+
+          const safeStart = Math.min(Math.max(0, start), block.text.length);
+          const safeEnd = Math.min(
+            Math.max(safeStart, end),
+            block.text.length,
+          );
+          return {
+            ...block,
+            text:
+              block.text.slice(0, safeStart) +
+              normalizedValue +
+              block.text.slice(safeEnd),
+          };
+        }),
+      );
+      setActiveTextBlockId(blockId);
+      activeTextSelectionRef.current = {
+        blockId,
+        start: start + normalizedValue.length,
+        end: start + normalizedValue.length,
+      };
+    },
+    [],
+  );
+
+  const mergeTextBlockBackward = useCallback(
     (event, blockId) => {
       if (
-        event.key !== "Enter" ||
-        event.shiftKey ||
-        event.nativeEvent.isComposing
+        event.key !== "Backspace" ||
+        event.nativeEvent.isComposing ||
+        event.currentTarget.selectionStart !== 0 ||
+        event.currentTarget.selectionEnd !== 0
       ) {
-        if (
-          event.key === "Backspace" &&
-          event.currentTarget.selectionStart === 0 &&
-          event.currentTarget.selectionEnd === 0
-        ) {
-          const currentValue = event.currentTarget.value;
-          let previousTextId = null;
-          let previousLength = 0;
-
-          setContentBlocks((current) => {
-            const currentIndex = current.findIndex(
-              (block) => block.id === blockId,
-            );
-            const previousBlock = current[currentIndex - 1];
-            if (currentIndex <= 0 || previousBlock?.type !== "text") {
-              return current;
-            }
-
-            event.preventDefault();
-            previousTextId = previousBlock.id;
-            previousLength = previousBlock.text.length;
-            return current
-              .map((block) =>
-                block.id === previousBlock.id
-                  ? { ...block, text: block.text + currentValue }
-                  : block,
-              )
-              .filter((block) => block.id !== blockId);
-          });
-
-          window.requestAnimationFrame(() => {
-            if (previousTextId) {
-              focusTextBlock(previousTextId, previousLength);
-            }
-          });
-        }
         return;
       }
 
-      event.preventDefault();
-      const start = event.currentTarget.selectionStart;
-      const end = event.currentTarget.selectionEnd;
-      const value = event.currentTarget.value;
-      const nextBlock = createTextBlock(value.slice(end));
+      const currentValue = event.currentTarget.value;
+      let previousTextId = null;
+      let previousLength = 0;
 
       setContentBlocks((current) => {
-        const index = current.findIndex((block) => block.id === blockId);
-        if (index < 0) return current;
-        const next = [...current];
-        next.splice(
-          index,
-          1,
-          { ...current[index], text: value.slice(0, start) },
-          nextBlock,
+        const currentIndex = current.findIndex(
+          (block) => block.id === blockId,
         );
-        return next;
+        const previousBlock = current[currentIndex - 1];
+        if (currentIndex <= 0 || previousBlock?.type !== "text") {
+          return current;
+        }
+
+        event.preventDefault();
+        previousTextId = previousBlock.id;
+        previousLength = previousBlock.text.length;
+        return current
+          .map((block) =>
+            block.id === previousBlock.id
+              ? { ...block, text: block.text + currentValue }
+              : block,
+          )
+          .filter((block) => block.id !== blockId);
       });
-      setActiveTextBlockId(nextBlock.id);
-      focusTextBlock(nextBlock.id);
+
+      window.requestAnimationFrame(() => {
+        if (previousTextId) {
+          focusTextBlock(previousTextId, previousLength);
+        }
+      });
     },
     [focusTextBlock],
   );
 
-  const pastePlainTextBlocks = useCallback(
+  const getImagePastePlacement = useCallback(
     (event, blockId) => {
       const imageFiles = Array.from(event.clipboardData?.items || [])
         .filter(
@@ -1246,58 +1403,18 @@ export function App() {
         .map((item) => item.getAsFile())
         .filter(Boolean);
 
-      if (imageFiles.length) {
-        event.preventDefault();
-        const placement = {
-          blockId,
-          start: event.currentTarget.selectionStart,
-          end: event.currentTarget.selectionEnd,
-        };
-        pendingFilePlacementRef.current = placement;
-        return placement;
-      }
-
-      const pastedText = event.clipboardData?.getData("text/plain") || "";
-      if (!/\r?\n/.test(pastedText)) return null;
+      if (!imageFiles.length) return null;
 
       event.preventDefault();
-      const start = event.currentTarget.selectionStart;
-      const end = event.currentTarget.selectionEnd;
-      const value = event.currentTarget.value;
-      const pastedParagraphs = pastedText.split(/\r?\n+/);
-      const firstText = value.slice(0, start) + pastedParagraphs[0];
-      const trailingText =
-        pastedParagraphs[pastedParagraphs.length - 1] + value.slice(end);
-      const insertedBlocks = [
-        { id: blockId, type: "text", text: firstText },
-        ...pastedParagraphs
-          .slice(1, -1)
-          .map((paragraph) => createTextBlock(paragraph)),
-      ];
-      const trailingBlock =
-        pastedParagraphs.length > 1
-          ? createTextBlock(trailingText)
-          : insertedBlocks[0];
-
-      if (pastedParagraphs.length > 1) {
-        insertedBlocks.push(trailingBlock);
-      }
-
-      setContentBlocks((current) => {
-        const index = current.findIndex((block) => block.id === blockId);
-        if (index < 0) return current;
-        const next = [...current];
-        next.splice(index, 1, ...insertedBlocks);
-        return next;
-      });
-      setActiveTextBlockId(trailingBlock.id);
-      focusTextBlock(
-        trailingBlock.id,
-        pastedParagraphs[pastedParagraphs.length - 1].length,
-      );
-      return [];
+      const placement = {
+        blockId,
+        start: event.currentTarget.selectionStart,
+        end: event.currentTarget.selectionEnd,
+      };
+      pendingFilePlacementRef.current = placement;
+      return placement;
     },
-    [focusTextBlock],
+    [],
   );
 
   const addFiles = useCallback(
@@ -1444,6 +1561,28 @@ export function App() {
     });
   }, []);
 
+  const clearLongContent = useCallback(() => {
+    if (!hasLongContent || pendingImageReads > 0) return;
+
+    const confirmed = window.confirm(
+      "清空全部正文、图片和手动分页？标题、作者和样式会保留。",
+    );
+    if (!confirmed) return;
+
+    const emptyBlock = createTextBlock();
+    setContentBlocks([emptyBlock]);
+    setSelectedPage(0);
+    setActiveTextBlockId(emptyBlock.id);
+    activeTextSelectionRef.current = {
+      blockId: emptyBlock.id,
+      start: 0,
+      end: 0,
+    };
+    pendingFilePlacementRef.current = null;
+    showNotice("图文已清空，标题和样式已保留");
+    focusTextBlock(emptyBlock.id);
+  }, [focusTextBlock, hasLongContent, pendingImageReads, showNotice]);
+
   const insertPageBreak = useCallback(() => {
     const placement = activeTextSelectionRef.current;
     const pageBreak = { id: createBlockId("break"), type: "pageBreak" };
@@ -1485,8 +1624,7 @@ export function App() {
 
   const handleContentPaste = useCallback(
     (event, blockId) => {
-      const placement = pastePlainTextBlocks(event, blockId);
-      if (Array.isArray(placement)) return;
+      const placement = getImagePastePlacement(event, blockId);
 
       if (placement) {
         const imageFiles = Array.from(event.clipboardData?.items || [])
@@ -1499,7 +1637,7 @@ export function App() {
         addFiles(imageFiles, placement);
       }
     },
-    [addFiles, pastePlainTextBlocks],
+    [addFiles, getImagePastePlacement],
   );
 
   const openImagePicker = useCallback(() => {
@@ -2133,7 +2271,18 @@ export function App() {
                 <section className="control-section text-section">
                 <div className="section-heading">
                   <h2>图文内容</h2>
-                  <span className="page-count">{pages.length} 张</span>
+                  <div className="section-heading-actions">
+                    <span className="page-count">{pages.length} 张</span>
+                    <button
+                      className="clear-content-button"
+                      type="button"
+                      disabled={!hasLongContent || pendingImageReads > 0}
+                      onClick={clearLongContent}
+                    >
+                      <Trash weight="bold" />
+                      清空图文
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -2196,7 +2345,7 @@ export function App() {
                             rememberTextSelection(event, block.id)
                           }
                           onKeyDown={(event) =>
-                            splitTextBlock(event, block.id)
+                            mergeTextBlockBackward(event, block.id)
                           }
                           onPaste={(event) =>
                             handleContentPaste(event, block.id)
@@ -2693,11 +2842,14 @@ export function App() {
 
         <section className="preview-panel" id="live-preview">
           <div className="preview-toolbar">
-            <h1>
-              {cardMode === "short"
-                ? "短文海报预览"
-                : `实时预览 · 第 ${safeSelectedPage + 1} 张`}
-            </h1>
+            <div className="preview-heading">
+              <h1>
+                {cardMode === "short"
+                  ? "短文海报预览"
+                  : `实时预览 · 第 ${safeSelectedPage + 1} 张`}
+              </h1>
+              <span>点击卡片文字直接修改</span>
+            </div>
             <div className="preview-navigation">
               <button
                 type="button"
@@ -2729,6 +2881,9 @@ export function App() {
                   page={pages[safeSelectedPage]}
                   pageIndex={safeSelectedPage}
                   pageCount={pages.length}
+                  editable
+                  onLongTextCommit={updateTextBlockRange}
+                  onShortTextChange={setShortText}
                   {...cardProps}
                 />
               </ResponsiveCardPreview>

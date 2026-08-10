@@ -15,3 +15,7 @@ Short-form typography must expose maximum font size, line height, and letter spa
 “材质大字” supports one custom 3:4 background. Process uploads locally, crop and compress them before storage, remember the result only in the current browser origin, and always provide a clear “恢复默认” action. Do not imply cross-device or cross-domain sync.
 
 Long-form card footers show exactly one right-aligned mark. The user chooses either the default X platform mark or a user-editable text mark; never render both at once. Keep the X mark visually larger than the custom text baseline (currently 42 px and shifted 6 px upward).
+
+Treat long-form editing as two synchronized views of one document: the left panel is the full manuscript for bulk paste, images, page breaks, ordering, and clearing; the main preview is the current finished card and its text must be directly editable. A change in either view must update the other and repaginate without losing content. Keep structural image controls in the manuscript view instead of duplicating a full editor on the card.
+
+Long-form content must always have a clear, guarded “清空图文” action that removes body text, images, and manual page breaks while preserving the post title, author, and style settings. Keep the full-manuscript editor tall enough for practical mobile-reading copy work.
