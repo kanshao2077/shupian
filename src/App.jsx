@@ -830,6 +830,17 @@ function CardTextLines({ lines }) {
   ));
 }
 
+function getCardTextLinesHtml(lines) {
+  return lines
+    .map(
+      (line) =>
+        `<span class="card-text-line ${line ? "" : "is-empty"}">${
+          line ? escapeHtml(line) : "&nbsp;"
+        }</span>`,
+    )
+    .join("");
+}
+
 function getEditableCardLayout(element) {
   if (element.placeholder) {
     return { displayText: "", softBreaks: new Map() };
@@ -920,6 +931,21 @@ function normalizeEditableText(value) {
     .replace(/[\u00A0\u200B]/g, "");
 }
 
+function readEditableDisplayText(editor) {
+  const lineElements = Array.from(editor.children);
+  const hasOnlyMeasuredLineBoxes =
+    lineElements.length > 0 &&
+    lineElements.every((line) => line.classList.contains("card-text-line"));
+
+  if (hasOnlyMeasuredLineBoxes) {
+    return lineElements
+      .map((line) => normalizeEditableText(line.textContent || ""))
+      .join("\n");
+  }
+
+  return normalizeEditableText(editor.innerText);
+}
+
 function EditableCardText({ element, onCommit }) {
   const [editing, setEditing] = useState(false);
   const [renderVersion, setRenderVersion] = useState(0);
@@ -929,6 +955,9 @@ function EditableCardText({ element, onCommit }) {
   const softBreaksRef = useRef(new Map());
   const cancelRef = useRef(false);
   const clickPointRef = useRef(null);
+  const editorHtml = element.placeholder
+    ? ""
+    : getCardTextLinesHtml(element.lines);
 
   useEffect(() => {
     const layout = getEditableCardLayout(element);
@@ -991,6 +1020,7 @@ function EditableCardText({ element, onCommit }) {
 
   return (
     <p
+      key={renderVersion}
       ref={editorRef}
       className={`card-static-text card-text-edit-trigger ${
         element.placeholder ? "is-placeholder" : ""
@@ -1010,9 +1040,7 @@ function EditableCardText({ element, onCommit }) {
         setEditing(true);
       }}
       onInput={(event) => {
-        const nextDisplayText = normalizeEditableText(
-          event.currentTarget.innerText,
-        );
+        const nextDisplayText = readEditableDisplayText(event.currentTarget);
         softBreaksRef.current = updateSoftBreakPositions(
           displayTextRef.current,
           nextDisplayText,
@@ -1023,6 +1051,15 @@ function EditableCardText({ element, onCommit }) {
           nextDisplayText,
           softBreaksRef.current,
         );
+      }}
+      onPaste={(event) => {
+        const plainText = normalizeEditableText(
+          event.clipboardData.getData("text/plain"),
+        );
+        if (!plainText) return;
+
+        event.preventDefault();
+        document.execCommand("insertText", false, plainText);
       }}
       onBlur={() => {
         commit();
@@ -1052,11 +1089,8 @@ function EditableCardText({ element, onCommit }) {
           event.currentTarget.blur();
         }
       }}
-    >
-      {element.placeholder ? null : (
-        <CardTextLines key={renderVersion} lines={element.lines} />
-      )}
-    </p>
+      dangerouslySetInnerHTML={{ __html: editorHtml }}
+    />
   );
 }
 
