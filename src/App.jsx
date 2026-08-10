@@ -392,8 +392,8 @@ function getShortPosterFontSize(
 function paginateContent(contentBlocks, fontSize, lineHeight) {
   const pages = [];
   const lineHeightPx = fontSize * lineHeight;
-  const blankLineHeight = Math.max(20, fontSize * 0.52);
   const paragraphGap = Math.max(28, fontSize * 0.86);
+  const blankLineHeight = paragraphGap;
   const mediaGap = paragraphGap;
 
   let currentPage = { elements: [], usedHeight: 0 };
@@ -460,6 +460,7 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
 
       if (canAppendToLast) {
         lastElement.lines.push(...pageLines.map((line) => line.text));
+        lastElement.lineRecords.push(...pageLines);
         lastElement.sourceEnd = segmentEnd;
         lastElement.text = block.text.slice(
           lastElement.sourceStart,
@@ -469,6 +470,7 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
         currentPage.elements.push({
           type: "text",
           lines: pageLines.map((line) => line.text),
+          lineRecords: pageLines,
           text: block.text.slice(segmentStart, segmentEnd),
           sourceBlockId: block.id,
           sourceStart: segmentStart,
@@ -828,15 +830,111 @@ function CardTextLines({ lines }) {
   ));
 }
 
+function getEditableCardLayout(element) {
+  if (element.placeholder) {
+    return { displayText: "", softBreaks: new Map() };
+  }
+
+  const lineRecords =
+    element.lineRecords ||
+    element.lines.map((text) => ({
+      text,
+      sourceStart: element.sourceStart,
+      sourceEnd: element.sourceStart,
+    }));
+  const softBreaks = new Map();
+  let displayText = "";
+
+  lineRecords.forEach((line, lineIndex) => {
+    displayText += line.text;
+    const nextLine = lineRecords[lineIndex + 1];
+    if (!nextLine) return;
+
+    const separator = element.text.slice(
+      Math.max(0, line.sourceEnd - element.sourceStart),
+      Math.max(0, nextLine.sourceStart - element.sourceStart),
+    );
+    const breakPosition = displayText.length;
+
+    if (!separator.includes("\n")) {
+      softBreaks.set(breakPosition, separator);
+    }
+    displayText += "\n";
+  });
+
+  return { displayText, softBreaks };
+}
+
+function updateSoftBreakPositions(previousText, nextText, softBreaks) {
+  let prefixLength = 0;
+  const sharedLength = Math.min(previousText.length, nextText.length);
+
+  while (
+    prefixLength < sharedLength &&
+    previousText[prefixLength] === nextText[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < sharedLength - prefixLength &&
+    previousText[previousText.length - 1 - suffixLength] ===
+      nextText[nextText.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const replacedTextEnd = previousText.length - suffixLength;
+  const lengthDelta = nextText.length - previousText.length;
+  const nextSoftBreaks = new Map();
+
+  softBreaks.forEach((replacement, position) => {
+    if (position < prefixLength) {
+      nextSoftBreaks.set(position, replacement);
+    } else if (position >= replacedTextEnd) {
+      nextSoftBreaks.set(position + lengthDelta, replacement);
+    }
+  });
+
+  return nextSoftBreaks;
+}
+
+function restoreSourceBreaks(displayText, softBreaks) {
+  let sourceText = "";
+
+  for (let index = 0; index < displayText.length; index += 1) {
+    if (displayText[index] === "\n" && softBreaks.has(index)) {
+      sourceText += softBreaks.get(index);
+    } else {
+      sourceText += displayText[index];
+    }
+  }
+
+  return sourceText;
+}
+
+function normalizeEditableText(value) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u00A0\u200B]/g, "");
+}
+
 function EditableCardText({ element, onCommit }) {
-  const [draft, setDraft] = useState(element.text);
   const [editing, setEditing] = useState(false);
+  const [renderVersion, setRenderVersion] = useState(0);
+  const editorRef = useRef(null);
   const draftRef = useRef(element.text);
+  const displayTextRef = useRef("");
+  const softBreaksRef = useRef(new Map());
   const cancelRef = useRef(false);
+  const clickPointRef = useRef(null);
 
   useEffect(() => {
+    const layout = getEditableCardLayout(element);
     draftRef.current = element.text;
-    setDraft(element.text);
+    displayTextRef.current = layout.displayText;
+    softBreaksRef.current = layout.softBreaks;
   }, [
     element.sourceBlockId,
     element.sourceStart,
@@ -844,10 +942,39 @@ function EditableCardText({ element, onCommit }) {
     element.text,
   ]);
 
+  useEffect(() => {
+    if (!editing || !editorRef.current) return;
+
+    const editor = editorRef.current;
+    const clickPoint = clickPointRef.current;
+    editor.focus({ preventScroll: true });
+
+    if (!clickPoint) return;
+
+    const caretPosition = document.caretPositionFromPoint?.(
+      clickPoint.x,
+      clickPoint.y,
+    );
+    const fallbackRange = document.caretRangeFromPoint?.(
+      clickPoint.x,
+      clickPoint.y,
+    );
+    const node = caretPosition?.offsetNode || fallbackRange?.startContainer;
+    const offset = caretPosition?.offset ?? fallbackRange?.startOffset;
+
+    if (node && editor.contains(node) && Number.isFinite(offset)) {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.setStart(node, Math.min(offset, node.textContent?.length || 0));
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }, [editing]);
+
   const commit = () => {
     if (cancelRef.current) {
       cancelRef.current = false;
-      setDraft(element.text);
       return;
     }
 
@@ -862,53 +989,58 @@ function EditableCardText({ element, onCommit }) {
     }
   };
 
-  if (!editing) {
-    return (
-      <p
-        className={`card-static-text card-text-edit-trigger ${
-          element.placeholder ? "is-placeholder" : ""
-        }`}
-        role="textbox"
-        tabIndex={0}
-        aria-multiline="true"
-        aria-label="整段编辑当前卡片正文"
-        title="点击整段修改；离开输入框后自动重新分页"
-        onClick={() => setEditing(true)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setEditing(true);
-          }
-        }}
-      >
-        <CardTextLines lines={element.lines} />
-      </p>
-    );
-  }
-
   return (
-    <textarea
-      className="card-text-editor"
-      value={draft}
-      rows={Math.max(1, element.lines.length)}
-      autoFocus
-      placeholder={element.placeholder}
-      spellCheck="false"
+    <p
+      ref={editorRef}
+      className={`card-static-text card-text-edit-trigger ${
+        element.placeholder ? "is-placeholder" : ""
+      }`}
+      role="textbox"
+      tabIndex={0}
+      aria-multiline="true"
       aria-label="整段编辑当前卡片正文"
-      title="整段修改；离开输入框后自动重新分页"
-      onChange={(event) => {
-        draftRef.current = event.currentTarget.value;
-        setDraft(event.currentTarget.value);
+      contentEditable={editing}
+      suppressContentEditableWarning
+      spellCheck="false"
+      data-placeholder={element.placeholder}
+      title="点击整段修改；离开输入框后自动重新分页"
+      onClick={(event) => {
+        if (editing) return;
+        clickPointRef.current = { x: event.clientX, y: event.clientY };
+        setEditing(true);
+      }}
+      onInput={(event) => {
+        const nextDisplayText = normalizeEditableText(
+          event.currentTarget.innerText,
+        );
+        softBreaksRef.current = updateSoftBreakPositions(
+          displayTextRef.current,
+          nextDisplayText,
+          softBreaksRef.current,
+        );
+        displayTextRef.current = nextDisplayText;
+        draftRef.current = restoreSourceBreaks(
+          nextDisplayText,
+          softBreaksRef.current,
+        );
       }}
       onBlur={() => {
         commit();
         setEditing(false);
+        setRenderVersion((current) => current + 1);
       }}
       onKeyDown={(event) => {
+        if (!editing && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          clickPointRef.current = null;
+          setEditing(true);
+          return;
+        }
+
         if (event.key === "Escape") {
           cancelRef.current = true;
           draftRef.current = element.text;
-          setDraft(element.text);
+          setRenderVersion((current) => current + 1);
           event.currentTarget.blur();
         }
 
@@ -920,7 +1052,11 @@ function EditableCardText({ element, onCommit }) {
           event.currentTarget.blur();
         }
       }}
-    />
+    >
+      {element.placeholder ? null : (
+        <CardTextLines key={renderVersion} lines={element.lines} />
+      )}
+    </p>
   );
 }
 
@@ -1020,7 +1156,7 @@ const CardCanvas = forwardRef(function CardCanvas(
         "--image-radius": `${imageRadius}px`,
         "--body-font-size": `${fontSize}px`,
         "--body-line-height": lineHeight,
-        "--blank-line-height": `${Math.max(20, fontSize * 0.52)}px`,
+        "--blank-line-height": `${Math.max(28, fontSize * 0.86)}px`,
         "--paragraph-gap": `${Math.max(28, fontSize * 0.86)}px`,
       }}
       aria-label={`卡片 ${pageIndex + 1}，共 ${pageCount} 张`}

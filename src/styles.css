@@ -1700,57 +1700,32 @@ button:disabled {
 
 .card-text-edit-trigger {
   cursor: text;
-  transition:
-    background 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.card-text-edit-trigger:hover,
-.card-text-edit-trigger:focus-visible {
-  outline: 0;
-  background: rgba(93, 140, 255, 0.08);
-  box-shadow: 0 0 0 8px rgba(93, 140, 255, 0.28);
-}
-
-.card-text-edit-trigger.is-placeholder {
-  color: var(--card-secondary);
-}
-
-.card-text-editor {
-  width: 100%;
-  height: auto;
-  display: block;
-  min-height: 1.5em;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  outline: 0;
-  resize: none;
-  field-sizing: content;
-  background: transparent;
-  color: var(--card-foreground);
   caret-color: var(--card-foreground);
-  font-family: inherit;
-  font-size: var(--body-font-size);
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: var(--body-line-height);
-  overflow-wrap: anywhere;
   transition:
     background 160ms ease,
     box-shadow 160ms ease;
 }
 
-.card-text-editor:hover,
-.card-text-editor:focus {
+.card-text-edit-trigger:not([contenteditable="true"]):hover,
+.card-text-edit-trigger:not([contenteditable="true"]):focus-visible {
+  outline: 0;
   background: rgba(93, 140, 255, 0.08);
   box-shadow: 0 0 0 8px rgba(93, 140, 255, 0.28);
 }
 
-.card-text-editor::placeholder {
+.card-text-edit-trigger[contenteditable="true"] {
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.card-text-edit-trigger[contenteditable="true"] .card-text-line {
+  white-space: pre-wrap;
+}
+
+.card-text-edit-trigger.is-placeholder:empty::before {
+  content: attr(data-placeholder);
   color: var(--card-secondary);
-  opacity: 0.84;
 }
 
 .card-body > p:first-child {

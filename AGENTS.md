@@ -24,6 +24,8 @@ Treat long-form editing as two synchronized views of one document: the left pane
 
 Within one finished card, adjacent body text must render and edit as one continuous field, with the manuscript's explicit blank lines preserved. An image may divide the card into separate text regions, but paragraphs or wrapped lines alone must never become separate editors.
 
+The editable long-form preview must keep the same line boxes before focus, during focus, and in PNG export. Focusing the text must not swap to a layout engine with different wrapping or blank-line height. Every normal and empty line must fit completely inside the body region; move any line that cannot fit in full to the next card.
+
 Preview and PNG export must use identical line occupancy. Every measured body line, including empty and trailing empty lines before media, must render a real line box in the static export. Long-form cards use a 64 px horizontal safe margin and an approximately 952 × 1000 px body region so the 3:4 canvas carries more information without crowding the footer.
 
 Keep both export paths visible: “导出本页” downloads the selected card as one PNG, while the existing multi-page action downloads every card as a ZIP.
