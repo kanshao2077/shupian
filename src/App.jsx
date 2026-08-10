@@ -167,8 +167,7 @@ function getContext(fontSize) {
 }
 
 function wrapText(value, fontSize) {
-  const cleanValue = value.trim();
-  if (!cleanValue) return [];
+  if (!value) return [];
 
   const context = getContext(fontSize);
   const lines = [];
@@ -176,7 +175,7 @@ function wrapText(value, fontSize) {
   let currentStart = 0;
   let offset = 0;
 
-  for (const character of Array.from(cleanValue)) {
+  for (const character of Array.from(value)) {
     const characterStart = offset;
     const characterEnd = offset + character.length;
     const candidate = currentLine + character;
@@ -210,6 +209,23 @@ function createTextBlock(text = "", id = createBlockId("text")) {
 
 function createInitialContentBlocks(value) {
   return [createTextBlock(value)];
+}
+
+function mergeAdjacentTextBlocks(blocks) {
+  return blocks.reduce((merged, block) => {
+    const previousBlock = merged.at(-1);
+
+    if (previousBlock?.type === "text" && block.type === "text") {
+      merged[merged.length - 1] = {
+        ...previousBlock,
+        text: previousBlock.text + block.text,
+      };
+      return merged;
+    }
+
+    merged.push(block);
+    return merged;
+  }, []);
 }
 
 function getMediaHeight(media) {
@@ -365,6 +381,60 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
       (currentPage.elements.length > 1 ? mediaGap : 0) + height;
   };
 
+  const addTextLines = (block, lines) => {
+    let remainingLines = lines;
+
+    while (remainingLines.length) {
+      const lastElement = currentPage.elements.at(-1);
+      const canAppendToLast =
+        lastElement?.type === "text" &&
+        lastElement.sourceBlockId === block.id;
+      const gap =
+        currentPage.elements.length && !canAppendToLast ? paragraphGap : 0;
+      const availableHeight = BODY_HEIGHT - currentPage.usedHeight - gap;
+      let lineCapacity = Math.floor(availableHeight / lineHeightPx);
+
+      if (
+        currentPage.elements.length &&
+        (lineCapacity <= 0 ||
+          (lineCapacity === 1 && remainingLines.length > 1))
+      ) {
+        commitPage();
+        continue;
+      }
+
+      lineCapacity = Math.max(1, lineCapacity);
+      const pageLines = remainingLines.slice(0, lineCapacity);
+      remainingLines = remainingLines.slice(lineCapacity);
+      const segmentStart = pageLines[0].sourceStart;
+      const segmentEnd = pageLines[pageLines.length - 1].sourceEnd;
+
+      if (canAppendToLast) {
+        lastElement.lines.push(...pageLines.map((line) => line.text));
+        lastElement.sourceEnd = segmentEnd;
+        lastElement.text = block.text.slice(
+          lastElement.sourceStart,
+          segmentEnd,
+        );
+      } else {
+        currentPage.elements.push({
+          type: "text",
+          lines: pageLines.map((line) => line.text),
+          text: block.text.slice(segmentStart, segmentEnd),
+          sourceBlockId: block.id,
+          sourceStart: segmentStart,
+          sourceEnd: segmentEnd,
+        });
+      }
+
+      currentPage.usedHeight += gap + pageLines.length * lineHeightPx;
+
+      if (remainingLines.length) {
+        commitPage();
+      }
+    }
+  };
+
   contentBlocks.forEach((block) => {
     if (block.type === "pageBreak") {
       commitPage();
@@ -382,64 +452,39 @@ function paginateContent(contentBlocks, fontSize, lineHeight) {
     let sourceOffset = 0;
 
     sourceLines.forEach((sourceLine, sourceLineIndex) => {
-      const leadingWhitespace =
-        sourceLine.length - sourceLine.trimStart().length;
-      const trailingWhitespace =
-        sourceLine.length - sourceLine.trimEnd().length;
-      const paragraphStart = sourceOffset + leadingWhitespace;
-      const paragraphEnd =
-        sourceOffset + sourceLine.length - trailingWhitespace;
-      const paragraph = block.text.slice(paragraphStart, paragraphEnd);
+      const lineStart = sourceOffset;
+      const lineEnd = lineStart + sourceLine.length;
 
       sourceOffset +=
         sourceLine.length +
         (sourceLineIndex < sourceLines.length - 1 ? 1 : 0);
 
-      if (!paragraph) return;
-
-      if (/^---+$/.test(paragraph)) {
+      if (/^\s*---+\s*$/.test(sourceLine)) {
         commitPage();
         return;
       }
 
-      let remainingLines = wrapText(paragraph, fontSize);
-
-      while (remainingLines.length) {
-        const gap = currentPage.elements.length ? paragraphGap : 0;
-        const availableHeight = BODY_HEIGHT - currentPage.usedHeight - gap;
-        let lineCapacity = Math.floor(availableHeight / lineHeightPx);
-
-        if (
-          currentPage.elements.length &&
-          (lineCapacity <= 0 ||
-            (lineCapacity === 1 && remainingLines.length > 1))
-        ) {
-          commitPage();
-          continue;
+      if (!sourceLine.trim()) {
+        if (block.text) {
+          addTextLines(block, [
+            {
+              text: "",
+              sourceStart: lineStart,
+              sourceEnd: lineEnd,
+            },
+          ]);
         }
-
-        lineCapacity = Math.max(1, lineCapacity);
-        const wrappedLines = remainingLines.slice(0, lineCapacity);
-        remainingLines = remainingLines.slice(lineCapacity);
-        const segmentStart = wrappedLines[0].start;
-        const segmentEnd = wrappedLines[wrappedLines.length - 1].end;
-
-        currentPage.elements.push({
-          type: "text",
-          lines: wrappedLines.map((line) => line.text),
-          text: paragraph.slice(segmentStart, segmentEnd),
-          sourceBlockId: block.id,
-          sourceStart: paragraphStart + segmentStart,
-          sourceEnd: paragraphStart + segmentEnd,
-        });
-        currentPage.usedHeight +=
-          (currentPage.elements.length > 1 ? gap : 0) +
-          wrappedLines.length * lineHeightPx;
-
-        if (remainingLines.length) {
-          commitPage();
-        }
+        return;
       }
+
+      addTextLines(
+        block,
+        wrapText(sourceLine, fontSize).map((line) => ({
+          text: line.text,
+          sourceStart: lineStart + line.start,
+          sourceEnd: lineStart + line.end,
+        })),
+      );
     });
   });
 
@@ -763,8 +808,8 @@ function EditableCardText({ element, onCommit }) {
       rows={Math.max(1, element.lines.length)}
       placeholder={element.placeholder}
       spellCheck="false"
-      aria-label="直接编辑当前卡片正文"
-      title="直接修改；离开输入框后自动重新分页"
+      aria-label="整段编辑当前卡片正文"
+      title="整段修改；离开输入框后自动重新分页"
       onChange={(event) => {
         draftRef.current = event.currentTarget.value;
         setDraft(event.currentTarget.value);
@@ -1510,7 +1555,9 @@ export function App() {
         );
       } catch (error) {
         setContentBlocks((current) =>
-          current.filter((block) => block.id !== pendingBlock.id),
+          mergeAdjacentTextBlocks(
+            current.filter((block) => block.id !== pendingBlock.id),
+          ),
         );
         showNotice(error.message, "error");
       } finally {
@@ -1538,7 +1585,7 @@ export function App() {
         next[targetIndex],
         next[sourceIndex],
       ];
-      return next;
+      return mergeAdjacentTextBlocks(next);
     });
   }, []);
 
@@ -1554,7 +1601,9 @@ export function App() {
 
   const removeContentBlock = useCallback((blockId) => {
     setContentBlocks((current) => {
-      const next = current.filter((block) => block.id !== blockId);
+      const next = mergeAdjacentTextBlocks(
+        current.filter((block) => block.id !== blockId),
+      );
       return next.some((block) => block.type === "text")
         ? next
         : [...next, createTextBlock()];
@@ -2848,7 +2897,7 @@ export function App() {
                   ? "短文海报预览"
                   : `实时预览 · 第 ${safeSelectedPage + 1} 张`}
               </h1>
-              <span>点击卡片文字直接修改</span>
+              <span>点击卡片正文整段修改</span>
             </div>
             <div className="preview-navigation">
               <button

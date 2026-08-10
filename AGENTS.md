@@ -18,4 +18,6 @@ Long-form card footers show exactly one right-aligned mark. The user chooses eit
 
 Treat long-form editing as two synchronized views of one document: the left panel is the full manuscript for bulk paste, images, page breaks, ordering, and clearing; the main preview is the current finished card and its text must be directly editable. A change in either view must update the other and repaginate without losing content. Keep structural image controls in the manuscript view instead of duplicating a full editor on the card.
 
+Within one finished card, adjacent body text must render and edit as one continuous field, with the manuscript's explicit blank lines preserved. An image may divide the card into separate text regions, but paragraphs or wrapped lines alone must never become separate editors.
+
 Long-form content must always have a clear, guarded “清空图文” action that removes body text, images, and manual page breaks while preserving the post title, author, and style settings. Keep the full-manuscript editor tall enough for practical mobile-reading copy work.
